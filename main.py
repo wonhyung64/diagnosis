@@ -74,7 +74,7 @@ def compute_iou(final_bbox, gt_box):
     y_bottom = tf.minimum(bbox_y2, tf.transpose(gt_y2, [1, 0]))
 
     inter_area = tf.maximum(x_bottom - x_top, 0) * tf.maximum(y_bottom - y_top, 0)
-    union_area = (bbox_area + gt_area - inter_area)
+    union_area = (bbox_area + tf.transpose(gt_area, [1, 0]) - inter_area)
     iou = inter_area / union_area
 
     return iou
@@ -103,9 +103,49 @@ final_scores = json_load["final_scores"]
 
 
 fn_boxes, fn_labels = find_fn(gt_boxes, gt_labels, final_bboxes, final_labels, total_labels, iou_thresh=0.5)
+
 print(fn_labels)
 print(gt_labels)
 print(final_labels)
+a = tf.constant([[1.,2.], [3.,4.]])
+b = tf.constant([.1, .2])
+c = tf.constant([[.1, .2, .3, .4]])
+fn_boxes
+pred_bboxes.shape
+
+
+# fn mechanism
+iou_thresh = 0.5
+
+iou_pred_fn = compute_iou(pred_bboxes, fn_boxes)
+pred_bboxes.shape
+cond1 = iou_pred_fn >= iou_thresh
+
+# check cls 
+fn_cls_bool = tf.reduce_any(cond1, axis=[0, 1])
+fn_boxes_1 = fn_boxes[fn_cls_bool]
+fn_boxes_2 = fn_boxes[tf.logical_not(fn_cls_bool)]
+
+# check cali, inter, bg
+fn_boxes_2
+pred_labels
+pred_labels[cond1]
+iou_roi_fn = compute_iou(roi_bboxes, fn_boxes_2)
+
+tf.gather(tf.where(tf.logical_not(cond1))[...,:2])
+# check regressor, proposal
+fn_reg_bool = tf.reduce_any(iou_roi_fn >= iou_thresh, axis=0)
+fn_reg = fn_boxes_2[fn_reg_bool]
+fn_proposal = fn_boxes_2[tf.logical_not(fn_reg_bool)]
+    
+    
+        pass
+
+    else:
+        pass
+    
+    
+
 
 
 
