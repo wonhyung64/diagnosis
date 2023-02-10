@@ -104,48 +104,42 @@ final_scores = json_load["final_scores"]
 
 fn_boxes, fn_labels = find_fn(gt_boxes, gt_labels, final_bboxes, final_labels, total_labels, iou_thresh=0.5)
 
-print(fn_labels)
-print(gt_labels)
-print(final_labels)
-a = tf.constant([[1.,2.], [3.,4.]])
-b = tf.constant([.1, .2])
-c = tf.constant([[.1, .2, .3, .4]])
-fn_boxes
-pred_bboxes.shape
-
 
 # fn mechanism
 iou_thresh = 0.5
+score_thresh = 0.3
 
 iou_pred_fn = compute_iou(pred_bboxes, fn_boxes)
-pred_bboxes.shape
-cond1 = iou_pred_fn >= iou_thresh
+pred_iou_cond = iou_pred_fn >= iou_thresh
 
 # check cls 
-fn_cls_bool = tf.reduce_any(cond1, axis=[0, 1])
-fn_boxes_1 = fn_boxes[fn_cls_bool]
-fn_boxes_2 = fn_boxes[tf.logical_not(fn_cls_bool)]
+fn_cls_problem = tf.reduce_any(pred_iou_cond, axis=[0, 1])
+pred_cls_problem = tf.reduce_any(pred_iou_cond, axis=-1)
+
+fn_cls_problem_boxes = fn_boxes[fn_cls_problem]
+fn_cls_problem_labels = fn_labels[fn_cls_problem]
+
+fn_reg_problem_boxes = fn_boxes[tf.logical_not(fn_cls_problem)]
+fn_reg_problem_labels = fn_labels[tf.logical_not(fn_cls_problem)]
+
 
 # check cali, inter, bg
-fn_boxes_2
-pred_labels
-pred_labels[cond1]
-iou_roi_fn = compute_iou(roi_bboxes, fn_boxes_2)
+s_loc = pred_labels[tf.logical_not(pred_cls_problem)] # logical_not 지워야 됨
+s_loc = tf.reshape(s_loc, [-1, total_labels])
 
-tf.gather(tf.where(tf.logical_not(cond1))[...,:2])
+for c, b in zip(fn_cls_problem_labels, fn_cls_problem_boxes):  #fn_labels_1 으로 바꾸기
+    if tf.reduce_any(s_loc[..., c] >= score_thresh): print(1)
+    elif tf.reduce_any(s_loc[..., 0] >= score_thresh): print(3)
+    else: print(2)
+
+
+iou_roi_fn = compute_iou(roi_bboxes, fn_reg_problem_boxes)
 # check regressor, proposal
-fn_reg_bool = tf.reduce_any(iou_roi_fn >= iou_thresh, axis=0)
-fn_reg = fn_boxes_2[fn_reg_bool]
-fn_proposal = fn_boxes_2[tf.logical_not(fn_reg_bool)]
-    
-    
-        pass
+roi_iou_cond = iou_roi_fn >= iou_thresh
+fn_reg_bool = tf.reduce_any(roi_iou_cond, axis=0)
 
-    else:
-        pass
-    
-    
+fn_reg_box = fn_reg_problem_boxes[fn_reg_bool]
+fn_reg_label = fn_reg_problem_labels[fn_reg_bool]
 
-
-
-
+fn_proposal_box = fn_reg_problem_boxes[tf.logical_not(fn_reg_bool)]
+fn_proposal_label = fn_reg_problem_labels[tf.logical_not(fn_reg_bool)]
