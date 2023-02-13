@@ -10,6 +10,7 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import OneHotEncoder
 #%%
 path = "/Users/wonhyung64/data/diagnosis"
 
@@ -37,23 +38,29 @@ for col in DAGs:
         label_onehot = onehot_encoder.fit_transform(np.expand_dims(X["label"].to_numpy(), -1)).toarray()
         X = X.drop("label", axis=1)
 
-    if X.shape[1] == 0:
-        X = label_onehot
-    else: 
+        if X.shape[1] == 0:
+            X = label_onehot
+        else: 
+            scaler = MinMaxScaler()
+            scaler.fit(X)
+            X = scaler.transform(X)
+            X = np.concatenate([label_onehot, X], 1)
+    else:
         scaler = MinMaxScaler()
         scaler.fit(X)
         X = scaler.transform(X)
-        X = np.concatenate([label_onehot, X], 1)
+
 
     # model = LogisticRegression()
-    model = LogisticRegression(penalty="l1", solver="saga")
+    model = LogisticRegression(penalty="l1", C=0.1, solver="saga")
     model.fit(X, y)
     score = log_loss(y_true=y, y_pred=model.predict_proba(X))
     score_dag[score] = col
+    np.round(model.coef_[0],3)
 
+col = score_dag[min(score_dag.keys())]
 print(f"{score_dag[min(score_dag.keys())]}: {min(score_dag.keys())}")
 
-from sklearn.preprocessing import OneHotEncoder
 #%%
 score_dag = {}
 df_5 = df[(df["type"] == 5) | (df["type"] == 0)]
@@ -71,13 +78,17 @@ for col in DAGs:
         label_onehot = onehot_encoder.fit_transform(np.expand_dims(X["label"].to_numpy(), -1)).toarray()
         X = X.drop("label", axis=1)
 
-    if X.shape[1] == 0:
-        X = label_onehot
-    else: 
+        if X.shape[1] == 0:
+            X = label_onehot
+        else: 
+            scaler = MinMaxScaler()
+            scaler.fit(X)
+            X = scaler.transform(X)
+            X = np.concatenate([label_onehot, X], 1)
+    else:
         scaler = MinMaxScaler()
         scaler.fit(X)
         X = scaler.transform(X)
-        X = np.concatenate([label_onehot, X], 1)
 
     model = RandomForestClassifier()
     # model = LogisticRegression(penalty="l1", solver="saga")
@@ -85,7 +96,10 @@ for col in DAGs:
     score = log_loss(y_true=y, y_pred=model.predict_proba(X))
     score_dag[score] = col
 
+col = score_dag[min(score_dag.keys())]
+print(f"{score_dag[min(score_dag.keys())]}: {min(score_dag.keys())}")
 
+np.round(model.feature_importances_, 3)
 
 #%%
 print(f"{score_dag_linear[min(score_dag_linear.keys())]}: {min(score_dag_linear.keys())}")
@@ -102,3 +116,13 @@ col = ('label', 'area', 'ratio', 'pos_num')
 model = RandomForestClassifier()
 model.fit(X, y)
 model.feature_importances_
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+fig, ax = plt.subplots(figsize=(10, 10), facecolor="white")
+sns.heatmap(
+    df[["type", "label", "area", "ratio", "ctr_x", "ctr_y", "pos_num", "pos_iou_mean"]].corr(),
+    annot=True,
+    cmap="Blues", ax=ax
+    )
+fig.savefig("/Users/wonhyung64/Downloads/corr.png")
