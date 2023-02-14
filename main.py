@@ -495,7 +495,8 @@ gt_labels = tf.expand_dims(gt_labels, 0)
 
 # tqdm.pandas()
 # gt_df.progress_apply(lambda x: compute_pos_sample(anchors, tf.constant([[[x["box_y1"], x["box_x1"], x["box_y2"], x["box_x2"]]]], dtype=tf.float32), tf.constant([x["label"]], dtype=tf.int32)), 1)
-
+fn_df
+anchor_boxes
 iou_pos_list = []
 num_pos_list = []
 for i in tqdm(range(len(fn_df))):
@@ -570,3 +571,149 @@ def generate_iou(anchors: tf.Tensor, gt_boxes: tf.Tensor) -> tf.Tensor:
     )
 
     return intersection_area / union_area
+
+        with open(f"/Users/wonhyung64/data/diagnosis/sample0.json", encoding="UTF-8") as f:
+            json_load = json.load(f)
+        json_load = {k: np.asarray(json_load[k]) for k in json_load.keys()}
+
+#%%
+# path argument
+path = "/Users/wonhyung64/data/diagnosis/retina"
+total_labels = 20
+# fn_df.to_csv("/Users/wonhyung64/data/diagnosis/pascal_frcnn.csv", index=False)
+pd.read_csv("/Users/wonhyung64/data/diagnosis/pascal_retina.csv")
+fn_df["pos_iou_mean"] = fn_df["pos_iou"].map(lambda x: np.mean(eval(x)))
+
+len(iou)
+#%%
+# def data loader
+samples = iter(os.listdir(path))
+iou_thresh = 0.5
+score_thresh = 0.3
+
+total_fn = []
+
+while True:
+    sample = next(samples)
+    try:
+        with open(f"{path}/{sample}", encoding="UTF-8") as f:
+            json_load = json.load(f)
+    except: continue
+    json_load = {k: np.asarray(json_load[k]) for k in json_load.keys()}
+
+    gt_boxes = swap_xy(json_load["gt_boxes"])
+    gt_labels = json_load["gt_labels"]
+    anchor_boxes = json_load["anchor_boxes"]
+    pred_bboxes = json_load["pred_bboxes"]
+    pred_labels = json_load["pred_labels"]
+    final_bboxes = json_load["final_bboxes"]
+    final_labels = json_load["final_labels"]
+    final_scores = json_load["final_scores"]
+    
+    tp_boxes, tp_labels, fn_boxes, fn_labels = find_fn(gt_boxes, gt_labels, final_bboxes, final_labels, total_labels, iou_thresh=0.5)
+    if tf.shape(tp_labels) != 0:
+        tp_labels = tf.expand_dims(tp_labels, -1)
+        tp = tf.concat([
+            tf.zeros_like(tp_labels, dtype=tf.float64),
+            tp_boxes,
+            tf.cast(tp_labels, dtype=tf.float64)
+            ], axis=-1)
+        total_fn += tp.numpy().tolist()
+
+    # fn mechanism
+    if tf.shape(fn_labels) != 0:
+        iou_pred_fn = compute_iou(pred_bboxes, fn_boxes)
+        pred_iou_cond = iou_pred_fn >= iou_thresh
+
+        # check cls 
+        fn_cls_problem = tf.reduce_any(pred_iou_cond, axis=[0])
+        pred_cls_problem = tf.reduce_any(pred_iou_cond, axis=-1)
+
+        fn_cls_problem_boxes = fn_boxes[fn_cls_problem]
+        fn_cls_problem_labels = fn_labels[fn_cls_problem]
+
+        fn_reg_problem_boxes = fn_boxes[tf.logical_not(fn_cls_problem)]
+        fn_reg_problem_labels = fn_labels[tf.logical_not(fn_cls_problem)]
+
+
+        # check cali, inter, bg
+        s_loc = pred_labels[tf.logical_not(tf.reduce_any(pred_cls_problem, axis=-1))] # logical_not 지워야 됨
+
+        for c, b in zip(fn_cls_problem_labels, fn_cls_problem_boxes): #fn_labels_1 으로 바꾸기
+            if tf.reduce_any(s_loc[..., c] >= score_thresh): 
+                fn_cali = [1.] + b.numpy().tolist() + [tf.cast(c, dtype=tf.float64).numpy()]
+                total_fn += [fn_cali]
+            elif tf.reduce_all(s_loc <= score_thresh): 
+                fn_bg = [3.] + b.numpy().tolist() + [tf.cast(c, dtype=tf.float64).numpy()]
+                total_fn += [fn_bg]
+            else: 
+                fn_inter = [2.] + b.numpy().tolist() + [tf.cast(c, dtype=tf.float64).numpy()]
+                total_fn += [fn_inter]
+
+        iou_roi_fn = compute_iou(anchor_boxes, fn_reg_problem_boxes*512)
+        # check regressor, proposal
+        roi_iou_cond = iou_roi_fn >= iou_thresh
+        fn_reg_bool = tf.reduce_any(roi_iou_cond, axis=0)
+
+        fn_reg_box = fn_reg_problem_boxes[fn_reg_bool]
+        fn_reg_label = tf.expand_dims(fn_reg_problem_labels[fn_reg_bool], axis=-1)
+        if tf.shape(fn_reg_label)[0] != 0:
+            fn_reg = tf.concat([
+                tf.ones_like(fn_reg_label, dtype=tf.float64) * 4.,
+                fn_reg_box,
+                tf.cast(fn_reg_label, dtype=tf.float64)
+                ], axis=-1)
+            total_fn += fn_reg.numpy().tolist()
+
+        fn_proposal_box = fn_reg_problem_boxes[tf.logical_not(fn_reg_bool)]
+        fn_proposal_label = tf.expand_dims(fn_reg_problem_labels[tf.logical_not(fn_reg_bool)], axis=-1)
+        if tf.shape(fn_proposal_label)[0] != 0:
+            fn_proposal = tf.concat([
+                tf.ones_like(fn_proposal_label, dtype=tf.float64) * 5.,
+                fn_proposal_box,
+                tf.cast(fn_proposal_label, dtype=tf.float64)
+                ], axis=-1)
+            total_fn += fn_proposal.numpy().tolist()
+#%%
+fn_df = pd.DataFrame(total_fn, columns=["type", "box_y1", "box_x1", "box_y2", "box_x2", "label"])
+fn_df["type"].value_counts()
+fn_df.to_csv(f"{path}/")
+
+#%%
+anchor_boxes
+gt_boxes
+from tqdm import tqdm
+iou_pos_list = []
+num_pos_list = []
+num_neg_list = []
+for i in tqdm(range(len(fn_df))):
+
+    y1, x1, y2, x2, label = fn_df.loc[i, "box_y1": "label"]
+    gt_box = tf.constant([[y1, x1, y2, x2]], dtype=tf.float64)
+
+    iou_matrix = compute_iou(anchor_boxes, gt_box * 512)
+    max_iou = tf.reduce_max(iou_matrix, axis=1)
+    matched_gt_idx = tf.argmax(iou_matrix, axis=1)
+    positive_mask = tf.greater_equal(max_iou, 0.5)
+    pos_iou = max_iou[positive_mask]
+    pos_num = tf.reduce_sum(tf.cast(positive_mask, dtype=tf.int32))
+    negative_mask = tf.less(max_iou, 0.4)
+    neg_num = tf.reduce_sum(tf.cast(negative_mask, dtype=tf.int32))
+
+    iou_pos_list.append(pos_iou.numpy().tolist())
+    num_pos_list.append(pos_num.numpy())
+    num_neg_list.append(neg_num.numpy())
+
+    y1, x1, y2, x2, label = fn_df.loc[i, "box_y1": "label"]
+    gt_box = tf.constant([[y1, x1, y2, x2]], dtype=tf.float64)
+    gt_label = tf.constant([[int(label)]], dtype=tf.int32)
+    iou_pos = compute_pos_sample(anchors, gt_box, gt_label)
+    num_pos = len(iou_pos)
+    iou_pos_list.append(iou_pos.numpy().tolist())
+    num_pos_list.append(num_pos)
+
+gt_df.loc[:, "pos_num"] = num_pos_list
+gt_df.loc[:, "pos_iou"] = iou_pos_list
+
+fn_df.loc[:, "pos_num"] = num_pos_list
+fn_df.loc[:, "pos_iou"] = iou_pos_list
