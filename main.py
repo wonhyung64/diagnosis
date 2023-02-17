@@ -581,7 +581,8 @@ def generate_iou(anchors: tf.Tensor, gt_boxes: tf.Tensor) -> tf.Tensor:
 path = "/Users/wonhyung64/data/diagnosis/retina"
 total_labels = 20
 # fn_df.to_csv("/Users/wonhyung64/data/diagnosis/pascal_frcnn.csv", index=False)
-pd.read_csv("/Users/wonhyung64/data/diagnosis/pascal_retina.csv")
+fn_df = pd.read_csv("/Users/wonhyung64/data/diagnosis/pascal_retina2.csv")
+fn_df["type"].value_counts()
 fn_df["pos_iou_mean"] = fn_df["pos_iou"].map(lambda x: np.mean(eval(x)))
 
 len(iou)
@@ -680,8 +681,9 @@ fn_df["type"].value_counts()
 fn_df.to_csv(f"{path}/")
 
 #%%
-anchor_boxes
+anchor_boxes = tf.cast(AnchorBox().get_anchors(512, 512), tf.float64)
 gt_boxes
+
 from tqdm import tqdm
 iou_pos_list = []
 num_pos_list = []
@@ -704,16 +706,8 @@ for i in tqdm(range(len(fn_df))):
     num_pos_list.append(pos_num.numpy())
     num_neg_list.append(neg_num.numpy())
 
-    y1, x1, y2, x2, label = fn_df.loc[i, "box_y1": "label"]
-    gt_box = tf.constant([[y1, x1, y2, x2]], dtype=tf.float64)
-    gt_label = tf.constant([[int(label)]], dtype=tf.int32)
-    iou_pos = compute_pos_sample(anchors, gt_box, gt_label)
-    num_pos = len(iou_pos)
-    iou_pos_list.append(iou_pos.numpy().tolist())
-    num_pos_list.append(num_pos)
-
-gt_df.loc[:, "pos_num"] = num_pos_list
-gt_df.loc[:, "pos_iou"] = iou_pos_list
 
 fn_df.loc[:, "pos_num"] = num_pos_list
 fn_df.loc[:, "pos_iou"] = iou_pos_list
+
+fn_df.to_csv("/Users/wonhyung64/data/diagnosis/pascal_retina2.csv")
