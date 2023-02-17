@@ -7,15 +7,20 @@ import xgboost
 # %%
 path = "/Users/wonhyung64/data/diagnosis"
 frcnn_df = pd.read_csv(f"{path}/pascal_frcnn.csv")
-retina_df = pd.read_csv(f"{path}/pascal_retina.csv")
+retina_df = pd.read_csv(f"{path}/pascal_retina2.csv")
 frcnn_df = frcnn_df.drop(["pos_iou"], 1)
+
 retina_df = retina_df.drop(["pos_iou"], 1)
+retina_df["pos_iou_mean"] = retina_df["pos_iou"].map(lambda x: np.mean(eval(x)) )
+retina_df["type"].value_counts()
 
 frcnn_5 = frcnn_df[(frcnn_df["type"] == 5.0) | (frcnn_df["type"] == 0.0)]
 frcnn_5["type"] = frcnn_5["type"].map(lambda x: 1.0 if x > 0. else x)
+frcnn_5["pos_num"] = frcnn_5["pos_num"] / 256
 
 retina_3 = retina_df[(retina_df["type"] == 3.0) | (retina_df["type"] == 0.0)]
 retina_3["type"] = retina_3["type"].map(lambda x: 1.0 if x > 0. else x)
+retina_3["pos_num"] = retina_3["pos_num"] / 40000
 
 model_linear = sklearn.linear_model.LogisticRegression(max_iter=10000)
 model_linear.fit(frcnn_5.loc[:, "label":], frcnn_5["type"])
@@ -40,12 +45,20 @@ shap_values = explainer(frcnn_5.loc[:, "label":])
 shap.plots.bar(shap_values)
 shap.plots.beeswarm(shap_values)
 
-
 model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(retina_3.loc[:, "label":], retina_3["type"])
 explainer = shap.Explainer(model, retina_3.loc[:, "label":])
-shap_values = explainer(retina_3.loc[:, "label":])
-shap.plots.bar(shap_values)
+shap_values = explainer(retina_3.loc[:, "label":], check_additivity=False)
+
+import matplotlib.pyplot as plt
+fig, axes = plt.subplots(ncols=2, nrows=1, figsize=(20, 10))
+shap.plots.bar(shap_values.mean(0), ax=axes[0])
+
+shap.plots.bar(shap_values.max(0))
 shap.plots.beeswarm(shap_values)
+shap.plots.bar(shap_values.max(0))
+shap.plots.scatter(shap_values[:, "label"], color=shap_values)
+shap.plots.waterfall(shap_values[0])
+
 
 import tensorflow as tf
 from tqdm import tqdm
@@ -77,3 +90,33 @@ retina_df["pos_num2"] = num_pos_list
 import matplotlib.pyplot as plt
 plt.hist(retina_df["pos_num2"])
 plt.hist(retina_df["pos_num"])
+
+
+
+#%%
+frcnn_5
+
+from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
+
+
+retina_3
+X = retina_3.loc[:, "label":]
+y = retina_3.loc[:, "type"]
+retina_3
+X = frcnn_5.loc[:, "label":]
+y = frcnn_5.loc[:, "type"]
+
+onehot_encoder = OneHotEncoder()
+label_onehot = onehot_encoder.fit_transform(np.expand_dims(X["label"].to_numpy(), -1)).toarray()
+X = X.drop("label", axis=1)
+
+scaler = MinMaxScaler()
+scaler.fit(X)
+X = scaler.transform(X)
+X = np.concatenate([label_onehot, X], 1)
+
+model = xgboost.XGBClassifier(n_estimators=100, max_depth=2)
+model.fit(X, y)
+model.feature_importances_
+frcnn_df["type"].value_counts()
+retina_df["type"].value_counts()
