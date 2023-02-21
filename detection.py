@@ -333,41 +333,18 @@ test_dataloader_default_args = dict(
     samples_per_gpu=1, workers_per_gpu=2, dist=distributed, shuffle=False)
 
 # in case the test dataset is concatenated
-# if isinstance(cfg.data.test, dict):
-#     cfg.data.test.test_mode = True
-#     if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
-#         # Replace 'ImageToTensor' to 'DefaultFormatBundle'
-#         cfg.data.test.pipeline = replace_ImageToTensor(
-#             cfg.data.test.pipeline)
-# elif isinstance(cfg.data.test, list):
-#     for ds_cfg in cfg.data.test:
-#         ds_cfg.test_mode = True
-#     if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
-#         for ds_cfg in cfg.data.test:
-#             ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
-
-# test_loader_cfg = {
-#     **test_dataloader_default_args,
-#     **cfg.data.get('test_dataloader', {})
-# }
-
-# rank, _ = get_dist_info()
-# # allows not to create
-# if args.work_dir is not None and rank == 0:
-#     mmcv.mkdir_or_exist(osp.abspath(args.work_dir))
-#     timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
-#     json_file = osp.join(args.work_dir, f'eval_{timestamp}.json')
-
-# # build the dataloader
-# dataset = build_dataset(cfg.data.test)
-# data_loader = build_dataloader(dataset, **test_loader_cfg)
-
-if isinstance(cfg.data.train, dict):
-    cfg.data.train.test_mode = True
-    if cfg.data.train_dataloader.get('samples_per_gpu', 1) > 1:
+if isinstance(cfg.data.test, dict):
+    cfg.data.test.test_mode = True
+    if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
         # Replace 'ImageToTensor' to 'DefaultFormatBundle'
-        cfg.data.train.pipeline = replace_ImageToTensor(
-            cfg.data.train.pipeline)
+        cfg.data.test.pipeline = replace_ImageToTensor(
+            cfg.data.test.pipeline)
+elif isinstance(cfg.data.test, list):
+    for ds_cfg in cfg.data.test:
+        ds_cfg.test_mode = True
+    if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
+        for ds_cfg in cfg.data.test:
+            ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
 
 test_loader_cfg = {
     **test_dataloader_default_args,
@@ -382,7 +359,7 @@ if args.work_dir is not None and rank == 0:
     json_file = osp.join(args.work_dir, f'eval_{timestamp}.json')
 
 # build the dataloader
-dataset = build_dataset(cfg.data.train)
+dataset = build_dataset(cfg.data.test)
 data_loader = build_dataloader(dataset, **test_loader_cfg)
 
 # build the model and load checkpoint
@@ -493,3 +470,7 @@ def single_gpu_test(model,
         for _ in range(batch_size):
             prog_bar.update()
     return results
+for d in dataset: break
+type(dataset)
+
+dataset.get_ann_info(2)
