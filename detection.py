@@ -8,15 +8,14 @@ mm_path = "./module/mmdetection"
 
 # config_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco.py"
 # checkpoint_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco_20210719_215349-d18dff72.pth"
+
 config_file = f"{mm_path}/retinanet_r101_fpn_1x_coco.py"
 checkpoint_file = f"{mm_path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
 
 model = init_detector(config_file, checkpoint_file)
-# model = init_detector(config_file, checkpoint_file, device="cpu")
 
 result = inference_detector(model, f"{mm_path}/demo/demo.jpg")
 result_img = model.show_result(f"{mm_path}/demo/demo.jpg", result)
-result_img.shape
 
 
 #%%
@@ -31,7 +30,6 @@ if isinstance(imgs, (list, tuple)):
 else:
     imgs = [imgs]
     is_batch = False
-
 
 cfg = model.cfg
 
@@ -73,17 +71,24 @@ else:
 
 cfg["model"]["test_cfg"]["nms"] = None
 
-img = data["img"][0]
+#%% proposal region extraction
+anchor_cfg = model.cfg.model.bbox_head.anchor_generator
+anchor_type = anchor_cfg.type
+octave_base_scale = anchor_cfg.octave_base_scale
+scales_per_octave = anchor_cfg.scales_per_octave
+ratios = anchor_cfg.ratios
+strides = anchor_cfg.strides
 
+from mmdet.core import AnchorGenerator
+anchor_gerator = AnchorGenerator(strides=strides,
+                                 ratios=ratios,
+                                 octave_base_scale=octave_base_scale,
+                                 scales_per_octave=scales_per_octave
+                                 )
 
-# %%
-result = model(return_loss=False, rescale=True, **data)
-
-# %%
-class tmp(torch.nn.Module):
+class Backbone(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
-        # self.sub_model = torch.nn.Sequential([model.backbone, model.neck.lateral_convs, model.neck.fpn_convs[:2]])
         self.backbone = model.backbone
         self.neck = model.neck
     
@@ -92,12 +97,25 @@ class tmp(torch.nn.Module):
         x = self.neck(x)
         
         return x
-neck[0].shape
-torch.max(neck[0])
-SubModel = tmp(model)
-neck = SubModel(img)
-img[0].shape
-len(neck)
+
+SubModel = Backbone(model)
+necks = SubModel(img)
+feature_map_shapes = [tuple(neck.shape[-2:]) for neck in necks]
+
+anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cuda")
+
+img_size = torch.tensor([img.shape[-2], img.shape[-1]])
+normalize_factor = torch.tile(img_size, (2,)).to(device)
+
+anchors = [anchor / normalize_factor for anchor in  anchors]
+
+# %%
+result = model(return_loss=False, rescale=True, **data)
+
+# %%
+
+model.cfg.model.keys()
+img = data["img"][0]
 # %%
 tmp(img[0])
 model.neck.lateral_convs
@@ -105,10 +123,7 @@ model.neck.lateral_convs
 sub_model(img[0])
 
 
-sub_model.add_modules(, )
 
-
-modeaa
 
 neck[4].shape
 
@@ -116,14 +131,7 @@ octave_base_scale=4
 scales_per_octave=3
 ratios=[0.5, 1.0, 2.0]
 strides=[8, 16, 32, 64, 128]
-from module.mmdetection.mmdet.core import AnchorGenerator
-anchor_gerator = AnchorGenerator(strides=strides,
-                                 ratios=ratios,
-                                 octave_base_scale=octave_base_scale,
-                                 scales_per_octave=scales_per_octave
-                                 )
-self
-anchors = anchor_gerator.grid_anchors([(100, 152), (50, 76), (25, 38), (13, 19), (7, 10)], device="cuda")
+
 torch.max(anchors[4])
 anchors[0].shape
 anchors[1].shape
@@ -135,23 +143,19 @@ torch.max(anchors[0][:,2] - anchors[0][:,0])
 torch.max(anchors[1][:,2] - anchors[1][:,0])
 torch.max(anchors[2][:,2] - anchors[2][:,0])
 torch.max(anchors[3][:,2] - anchors[3][:,0])
+torch.max(anchors[0][:, 0])
+torch.max(anchors[0][:, 1])
 
 100 * 8
 152 * 8
 50 * 16
 76 * 16
-
+model.
 from mmdet.core import AnchorGenerator
 self = AnchorGenerator([16], [1.], [1.], [9])
 all_anchors = self.grid_priors([(2, 2)], device='cpu')
 print(all_anchors)
 
 
-self = AnchorGenerator([16, 32], [1.], [1.], [9, 18])
-all_anchors = self.grid_priors([(2, 2), (1, 1)], device='cpu')
-print(all_anchors)
-[tensor([[-4.5000, -4.5000,  4.5000,  4.5000],
-        [11.5000, -4.5000, 20.5000,  4.5000],
-        [-4.5000, 11.5000,  4.5000, 20.5000],
-        [11.5000, 11.5000, 20.5000, 20.5000]]), \
-tensor([[-9., -9., 9., 9.]])]
+
+#%%
