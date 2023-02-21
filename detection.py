@@ -12,10 +12,13 @@ mm_path = "./module/mmdetection"
 config_file = f"{mm_path}/retinanet_r101_fpn_1x_coco.py"
 checkpoint_file = f"{mm_path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
 
+config_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco.py"
+checkpoint_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
+
 model = init_detector(config_file, checkpoint_file)
 
 result = inference_detector(model, f"{mm_path}/demo/demo.jpg")
-result_img = model.show_result(f"{mm_path}/demo/demo.jpg", result)
+result_img = model.show_result(f"{mm_path}/demo/demo.jpg", result, show=True)
 
 
 #%%
@@ -112,50 +115,8 @@ anchors = [anchor / normalize_factor for anchor in  anchors]
 # %%
 result = model(return_loss=False, rescale=True, **data)
 
-# %%
-
-model.cfg.model.keys()
-img = data["img"][0]
-# %%
-tmp(img[0])
-model.neck.lateral_convs
 #%%
-sub_model(img[0])
+video = mmcv.VideoReader("./module/mmdetection/mmdet/video.mp4")
+os.getcwd()
 
 
-
-
-neck[4].shape
-
-octave_base_scale=4
-scales_per_octave=3
-ratios=[0.5, 1.0, 2.0]
-strides=[8, 16, 32, 64, 128]
-
-torch.max(anchors[4])
-anchors[0].shape
-anchors[1].shape
-anchors[2].shape
-anchors[3].shape
-anchors[4].shape
-427 / 8
-torch.max(anchors[0][:,2] - anchors[0][:,0])
-torch.max(anchors[1][:,2] - anchors[1][:,0])
-torch.max(anchors[2][:,2] - anchors[2][:,0])
-torch.max(anchors[3][:,2] - anchors[3][:,0])
-torch.max(anchors[0][:, 0])
-torch.max(anchors[0][:, 1])
-
-100 * 8
-152 * 8
-50 * 16
-76 * 16
-model.
-from mmdet.core import AnchorGenerator
-self = AnchorGenerator([16], [1.], [1.], [9])
-all_anchors = self.grid_priors([(2, 2)], device='cpu')
-print(all_anchors)
-
-
-
-#%%
