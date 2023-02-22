@@ -8,20 +8,23 @@ mm_path = "./module/mmdetection"
 
 # config_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco.py"
 # checkpoint_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco_20210719_215349-d18dff72.pth"
-
 config_file = f"{mm_path}/retinanet_r101_fpn_1x_coco.py"
 checkpoint_file = f"{mm_path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
-
-config_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco.py"
-checkpoint_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
+# config_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco.py"
+# checkpoint_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
 
 model = init_detector(config_file, checkpoint_file)
 
-result = inference_detector(model, f"{mm_path}/demo/demo.jpg")
-result_img = model.show_result(f"{mm_path}/demo/demo.jpg", result, show=True)
-help(inference_detector)
-model(a["img"], a["img_metas"], return_loss=False)
-type(a["img"])
+
+#%%
+cfg = model.cfg
+anchor_cfg = cfg.model.bbox_head.anchor_generator
+anchor_type = anchor_cfg.type
+octave_base_scale = anchor_cfg.octave_base_scale
+scales_per_octave = anchor_cfg.scales_per_octave
+ratios = anchor_cfg.ratios
+strides = anchor_cfg.strides
+
 #%%
 from mmdet.datasets import replace_ImageToTensor
 from mmdet.datasets.pipelines import Compose
@@ -35,9 +38,7 @@ else:
     imgs = [imgs]
     is_batch = False
 
-cfg = model.cfg
-data
-a
+
 device = next(model.parameters()).device  # model device
 
 if isinstance(imgs[0], np.ndarray):
@@ -75,23 +76,18 @@ else:
         ), 'CPU inference with RoIPool is not supported currently.'
 
 cfg["model"]["test_cfg"]["nms"] = None
-
+cfg.model.test_cfg.nms
 #%% proposal region extraction
-anchor_cfg = model.cfg.model.bbox_head.anchor_generator
-anchor_type = anchor_cfg.type
-octave_base_scale = anchor_cfg.octave_base_scale
-scales_per_octave = anchor_cfg.scales_per_octave
-ratios = anchor_cfg.ratios
-strides = anchor_cfg.strides
 
 from mmdet.core import AnchorGenerator
+
 anchor_gerator = AnchorGenerator(strides=strides,
                                  ratios=ratios,
                                  octave_base_scale=octave_base_scale,
                                  scales_per_octave=scales_per_octave
                                  )
 
-class Backbone(torch.nn.Module):
+class FeatureExtractor(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.backbone = model.backbone
@@ -103,7 +99,9 @@ class Backbone(torch.nn.Module):
         
         return x
 
-SubModel = Backbone(model)
+SubModel = FeatureExtractor(model)
+
+
 necks = SubModel(img)
 feature_map_shapes = [tuple(neck.shape[-2:]) for neck in necks]
 
@@ -114,17 +112,8 @@ normalize_factor = torch.tile(img_size, (2,)).to(device)
 
 anchors = [anchor / normalize_factor for anchor in  anchors]
 
-# %%
-result = model(return_loss=False, rescale=True, **data)
 
 #%%
-video = mmcv.VideoReader("./module/mmdetection/mmdet/video.mp4")
-os.getcwd()
-
-
-model.cfg
-#%%
-cfg = model.cfg
 
 # replace the ${key} with the value of cfg.key
 cfg = replace_cfg_vals(cfg)
@@ -175,7 +164,6 @@ test_loader_cfg = {
     **test_dataloader_default_args,
     **cfg.data.get('test_dataloader', {})
 }
-a
 rank, _ = get_dist_info()
 
 # build the dataloader
@@ -183,28 +171,12 @@ dataset = build_dataset(cfg.data.test)
 dataset.evaluate()
 data_loader = build_dataloader(dataset, **test_loader_cfg)
 a = next(iter(data_loader))
-cfg.data.test
-os.chdir("module/mmdetection")
-to_tensor(a["img"])
-help(data_loader)
-data_loader.__getitem__
-data_loader.__len__()
-from mmdet.datasets import to_tensor
-import mmdet
-mmdet.datasets.to_tensor()
-model.backbone.norm_eval
-data
-a
-result = inference_detector(model, a)
 
 for i, data in enumerate(data_loader):break
     with torch.no_grad():
         result = model(return_loss=False, rescale=True, **data)
         model.eval()
 
-help(type(a["img"]))
-a["img"].__init__
-a["img"]
 
 
 #%%
@@ -230,10 +202,10 @@ from mmdet.utils import (build_ddp, build_dp, compat_cfg, get_device,
                          replace_cfg_vals, rfnext_init_model,
                          setup_multi_processes, update_data_root)
 
-
+config_file
 args = argparse.Namespace(
-    config = "faster_rcnn_r50_fpn_1x_coco.py",
-    checkpoint = "faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth",
+    config = config_file,
+    checkpoint = checkpoint_file,
     out=None,
     eval="bbox",
     format_only=None,
@@ -332,6 +304,9 @@ else:
 test_dataloader_default_args = dict(
     samples_per_gpu=1, workers_per_gpu=2, dist=distributed, shuffle=False)
 
+cfg.data.test.ann_file = f'{mm_path}/data/coco/annotations/instances_train2017.json'
+cfg.data.test.img_prefix = f'{mm_path}/data/coco/train2017/'
+
 # in case the test dataset is concatenated
 if isinstance(cfg.data.test, dict):
     cfg.data.test.test_mode = True
@@ -392,7 +367,9 @@ else:
         cfg.device,
         device_ids=[int(os.environ['LOCAL_RANK'])],
         broadcast_buffers=False)
+
 os.chdir("./module/mmdetection")
+
 #%%
 import os.path as osp
 import pickle
@@ -418,42 +395,11 @@ def single_gpu_test(model,
     dataset = data_loader.dataset
     PALETTE = getattr(dataset, 'PALETTE', None)
     prog_bar = mmcv.ProgressBar(len(dataset))
-    for i, data in enumerate(data_loader):break
+    for i, data in enumerate(data_loader):
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
 
         batch_size = len(result)
-        if show or out_dir:
-            if batch_size == 1 and isinstance(data['img'][0], torch.Tensor):
-                img_tensor = data['img'][0]
-            else:
-                img_tensor = data['img'][0].data[0]
-            img_metas = data['img_metas'][0].data[0]
-            imgs = tensor2imgs(img_tensor, **img_metas[0]['img_norm_cfg'])
-            assert len(imgs) == len(img_metas)
-
-            for i, (img, img_meta) in enumerate(zip(imgs, img_metas)):
-                h, w, _ = img_meta['img_shape']
-                img_show = img[:h, :w, :]
-
-                ori_h, ori_w = img_meta['ori_shape'][:-1]
-                img_show = mmcv.imresize(img_show, (ori_w, ori_h))
-
-                if out_dir:
-                    out_file = osp.join(out_dir, img_meta['ori_filename'])
-                else:
-                    out_file = None
-
-                model.module.show_result(
-                    img_show,
-                    result[i],
-                    bbox_color=PALETTE,
-                    text_color=PALETTE,
-                    mask_color=PALETTE,
-                    show=show,
-                    out_file=out_file,
-                    score_thr=show_score_thr)
-
         # encode mask results
         if isinstance(result[0], tuple):
             result = [(bbox_results, encode_mask_results(mask_results))
@@ -467,10 +413,22 @@ def single_gpu_test(model,
 
         results.extend(result)
 
-        for _ in range(batch_size):
-            prog_bar.update()
-    return results
-for d in dataset: break
-type(dataset)
+        
 
-dataset.get_ann_info(2)
+i = 5
+img = torch.unsqueeze(dataset[i]["img"][0], 0).to(cfg.device)
+ann = dataset.get_ann_info(i)
+gt_box = ann["bboxes"]
+gt_label = ann["labels"]
+
+#%%
+sub_model = SubModel.to(cfg.device)
+necks = sub_model(img)
+feature_map_shapes = [tuple(neck.shape[-2:]) for neck in necks]
+
+anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cuda")
+
+img_size = torch.tensor([img.shape[-2], img.shape[-1]])
+normalize_factor = torch.tile(img_size, (2,)).to(cfg.device)
+
+anchors = [anchor / normalize_factor for anchor in  anchors]
