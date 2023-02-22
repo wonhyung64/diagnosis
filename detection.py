@@ -2,185 +2,8 @@
 import torch
 import numpy as np
 from module.mmdetection.mmdet.apis import init_detector, inference_detector
-
-# %%
-mm_path = "./module/mmdetection"
-
-# config_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco.py"
-# checkpoint_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco_20210719_215349-d18dff72.pth"
-config_file = f"{mm_path}/retinanet_r101_fpn_1x_coco.py"
-checkpoint_file = f"{mm_path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
-# config_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco.py"
-# checkpoint_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
-
-model = init_detector(config_file, checkpoint_file)
-
-
-#%%
-cfg = model.cfg
-anchor_cfg = cfg.model.bbox_head.anchor_generator
-anchor_type = anchor_cfg.type
-octave_base_scale = anchor_cfg.octave_base_scale
-scales_per_octave = anchor_cfg.scales_per_octave
-ratios = anchor_cfg.ratios
-strides = anchor_cfg.strides
-
-#%%
-from mmdet.datasets import replace_ImageToTensor
-from mmdet.datasets.pipelines import Compose
-from mmcv.parallel import collate, scatter
-
-imgs = f"{mm_path}/demo/demo.jpg"
-
-if isinstance(imgs, (list, tuple)):
-    is_batch = True
-else:
-    imgs = [imgs]
-    is_batch = False
-
-
-device = next(model.parameters()).device  # model device
-
-if isinstance(imgs[0], np.ndarray):
-    cfg = cfg.copy()
-    # set loading pipeline type
-    cfg.data.test.pipeline[0].type = 'LoadImageFromWebcam'
-
-cfg.data.test.pipeline = replace_ImageToTensor(cfg.data.test.pipeline)
-test_pipeline = Compose(cfg.data.test.pipeline)
-
-datas = []
-for img in imgs:
-    # prepare data
-    if isinstance(img, np.ndarray):
-        # directly add img
-        data = dict(img=img)
-    else:
-        # add information into dict
-        data = dict(img_info=dict(filename=img), img_prefix=None)
-    # build the data pipeline
-    data = test_pipeline(data)
-    datas.append(data)
-
-data = collate(datas, samples_per_gpu=len(imgs))
-# just get the actual data from DataContainer
-data['img_metas'] = [img_metas.data[0] for img_metas in data['img_metas']]
-data['img'] = [img.data[0] for img in data['img']]
-if next(model.parameters()).is_cuda:
-    # scatter to specified GPU
-    data = scatter(data, [device])[0]
-else:
-    for m in model.modules():
-        assert not isinstance(
-            m, RoIPool
-        ), 'CPU inference with RoIPool is not supported currently.'
-
-cfg["model"]["test_cfg"]["nms"] = None
-cfg.model.test_cfg.nms
-#%% proposal region extraction
-
 from mmdet.core import AnchorGenerator
 
-anchor_gerator = AnchorGenerator(strides=strides,
-                                 ratios=ratios,
-                                 octave_base_scale=octave_base_scale,
-                                 scales_per_octave=scales_per_octave
-                                 )
-
-class FeatureExtractor(torch.nn.Module):
-    def __init__(self, model):
-        super().__init__()
-        self.backbone = model.backbone
-        self.neck = model.neck
-    
-    def forward(self, x):
-        x = self.backbone(x)
-        x = self.neck(x)
-        
-        return x
-
-SubModel = FeatureExtractor(model)
-
-
-necks = SubModel(img)
-feature_map_shapes = [tuple(neck.shape[-2:]) for neck in necks]
-
-anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cuda")
-
-img_size = torch.tensor([img.shape[-2], img.shape[-1]])
-normalize_factor = torch.tile(img_size, (2,)).to(device)
-
-anchors = [anchor / normalize_factor for anchor in  anchors]
-
-
-#%%
-
-# replace the ${key} with the value of cfg.key
-cfg = replace_cfg_vals(cfg)
-# update data root according to MMDET_DATASETS
-update_data_root(cfg)
-cfg = compat_cfg(cfg)
-# set multi-process settings
-setup_multi_processes(cfg)
-# set cudnn_benchmark
-if cfg.get('cudnn_benchmark', False):
-    torch.backends.cudnn.benchmark = True
-
-if 'pretrained' in cfg.model:
-    cfg.model.pretrained = None
-elif 'init_cfg' in cfg.model.backbone:
-    cfg.model.backbone.init_cfg = None
-
-if cfg.model.get('neck'):
-    if isinstance(cfg.model.neck, list):
-        for neck_cfg in cfg.model.neck:
-            if neck_cfg.get('rfp_backbone'):
-                if neck_cfg.rfp_backbone.get('pretrained'):
-                    neck_cfg.rfp_backbone.pretrained = None
-    elif cfg.model.neck.get('rfp_backbone'):
-        if cfg.model.neck.rfp_backbone.get('pretrained'):
-            cfg.model.neck.rfp_backbone.pretrained = None
-
-
-test_dataloader_default_args = dict(
-    samples_per_gpu=1, workers_per_gpu=1, dist=False, shuffle=False)
-    # samples_per_gpu=1, workers_per_gpu=2, dist=distributed, shuffle=False)
-
-# in case the test dataset is concatenated
-if isinstance(cfg.data.test, dict):
-    cfg.data.test.test_mode = True
-    if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
-        # Replace 'ImageToTensor' to 'DefaultFormatBundle'
-        cfg.data.test.pipeline = replace_ImageToTensor(
-            cfg.data.test.pipeline)
-elif isinstance(cfg.data.test, list):
-    for ds_cfg in cfg.data.test:
-        ds_cfg.test_mode = True
-    if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
-        for ds_cfg in cfg.data.test:
-            ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
-
-test_loader_cfg = {
-    **test_dataloader_default_args,
-    **cfg.data.get('test_dataloader', {})
-}
-rank, _ = get_dist_info()
-
-# build the dataloader
-dataset = build_dataset(cfg.data.test)
-dataset.evaluate()
-data_loader = build_dataloader(dataset, **test_loader_cfg)
-a = next(iter(data_loader))
-
-for i, data in enumerate(data_loader):break
-    with torch.no_grad():
-        result = model(return_loss=False, rescale=True, **data)
-        model.eval()
-
-
-
-#%%
-# Copyright (c) OpenMMLab. All rights reserved.
 import argparse
 import os
 import os.path as osp
@@ -202,7 +25,58 @@ from mmdet.utils import (build_ddp, build_dp, compat_cfg, get_device,
                          replace_cfg_vals, rfnext_init_model,
                          setup_multi_processes, update_data_root)
 
-config_file
+import os.path as osp
+import pickle
+import shutil
+import tempfile
+import time
+
+import mmcv
+import torch
+import torch.distributed as dist
+from mmcv.image import tensor2imgs
+from mmcv.runner import get_dist_info
+
+from mmdet.core import encode_mask_results
+
+
+class FeatureExtractor(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.backbone = model.backbone
+        self.neck = model.neck
+    
+    def forward(self, x):
+        x = self.backbone(x)
+        x = self.neck(x)
+        
+        return x
+
+
+# %% MODEL LOADER
+mm_path = "./module/mmdetection"
+
+# config_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco.py"
+# checkpoint_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco_20210719_215349-d18dff72.pth"
+config_file = f"{mm_path}/retinanet_r101_fpn_1x_coco.py"
+checkpoint_file = f"{mm_path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
+# config_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco.py"
+# checkpoint_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
+
+model = init_detector(config_file, checkpoint_file)
+
+#%% CONFIG ASSIGN
+cfg = model.cfg
+anchor_cfg = cfg.model.bbox_head.anchor_generator
+anchor_type = anchor_cfg.type
+octave_base_scale = anchor_cfg.octave_base_scale
+scales_per_octave = anchor_cfg.scales_per_octave
+ratios = anchor_cfg.ratios
+strides = anchor_cfg.strides
+
+cfg.data.test.ann_file = f'{mm_path}/data/coco/annotations/instances_train2017.json'
+cfg.data.test.img_prefix = f'{mm_path}/data/coco/train2017/'
+
 args = argparse.Namespace(
     config = config_file,
     checkpoint = checkpoint_file,
@@ -225,7 +99,24 @@ args = argparse.Namespace(
     eval_options = None
 )
 
+#%% ANCHOR LOADER
+anchor_gerator = AnchorGenerator(strides=strides,
+                                 ratios=ratios,
+                                 octave_base_scale=octave_base_scale,
+                                 scales_per_octave=scales_per_octave
+                                 )
 
+SubModel = FeatureExtractor(model)
+
+from mmdet.datasets import replace_ImageToTensor
+
+
+
+cfg.model.test_cfg.nms
+cfg["model"]["test_cfg"]["nms"] = None
+
+
+#%% DATA AND MODEL LOADER
 if 'LOCAL_RANK' not in os.environ:
     os.environ['LOCAL_RANK'] = str(args.local_rank)
 
@@ -304,9 +195,6 @@ else:
 test_dataloader_default_args = dict(
     samples_per_gpu=1, workers_per_gpu=2, dist=distributed, shuffle=False)
 
-cfg.data.test.ann_file = f'{mm_path}/data/coco/annotations/instances_train2017.json'
-cfg.data.test.img_prefix = f'{mm_path}/data/coco/train2017/'
-
 # in case the test dataset is concatenated
 if isinstance(cfg.data.test, dict):
     cfg.data.test.test_mode = True
@@ -359,32 +247,9 @@ else:
 
 if not distributed:
     model = build_dp(model, cfg.device, device_ids=cfg.gpu_ids)
-    outputs = single_gpu_test(model, data_loader, args.show, args.show_dir,
-                                args.show_score_thr)
-else:
-    model = build_ddp(
-        model,
-        cfg.device,
-        device_ids=[int(os.environ['LOCAL_RANK'])],
-        broadcast_buffers=False)
+    
 
-os.chdir("./module/mmdetection")
-
-#%%
-import os.path as osp
-import pickle
-import shutil
-import tempfile
-import time
-
-import mmcv
-import torch
-import torch.distributed as dist
-from mmcv.image import tensor2imgs
-from mmcv.runner import get_dist_info
-
-from mmdet.core import encode_mask_results
-
+#%% MODEL OUTPUT
 def single_gpu_test(model,
                     data_loader,
                     show=False,
@@ -393,13 +258,12 @@ def single_gpu_test(model,
     model.eval()
     results = []
     dataset = data_loader.dataset
-    PALETTE = getattr(dataset, 'PALETTE', None)
     prog_bar = mmcv.ProgressBar(len(dataset))
     for i, data in enumerate(data_loader):
+        if i == 100: break
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
-
-        batch_size = len(result)
+        
         # encode mask results
         if isinstance(result[0], tuple):
             result = [(bbox_results, encode_mask_results(mask_results))
@@ -412,23 +276,34 @@ def single_gpu_test(model,
                                             encode_mask_results(mask_results))
 
         results.extend(result)
-
-        
-
-i = 5
-img = torch.unsqueeze(dataset[i]["img"][0], 0).to(cfg.device)
-ann = dataset.get_ann_info(i)
-gt_box = ann["bboxes"]
-gt_label = ann["labels"]
+        prog_bar.update()
 
 #%%
-sub_model = SubModel.to(cfg.device)
-necks = sub_model(img)
-feature_map_shapes = [tuple(neck.shape[-2:]) for neck in necks]
 
-anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cuda")
+for i, result in enumerate(results):break
 
-img_size = torch.tensor([img.shape[-2], img.shape[-1]])
-normalize_factor = torch.tile(img_size, (2,)).to(cfg.device)
 
-anchors = [anchor / normalize_factor for anchor in  anchors]
+# img = torch.unsqueeze(dataset[i]["img"][0], 0).to(cfg.device)
+
+img_metas = dataset[i]["img_metas"][0].data
+ori_shape = img_metas["ori_shape"][:2]
+pad_shape = img_metas["pad_shape"][:2]
+
+box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,))
+anchor_norm_factor = torch.tile(torch.tensor([pad_shape[1], pad_shape[0]]), (2,))
+
+ann = dataset.get_ann_info(i)
+gt_label = ann["labels"]
+gt_box = ann["bboxes"]
+gt_box = torch.tensor(gt_box) / box_norm_factor
+
+feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / stride)) for stride in strides]
+anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cpu")
+anchors = [anchor / anchor_norm_factor for anchor in  anchors]
+
+result / np.array(box_norm_factor.tolist() + [1])
+# necks = SubModel(img)
+# feature_map_shapes = [tuple(neck.shape[-2:]) for neck in necks]
+# necks[0].shape
+
+
