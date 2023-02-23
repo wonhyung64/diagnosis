@@ -209,6 +209,25 @@ def predict_dataset(model, data_loader,):
     return results, dataset
 
 
+def compute_iou(result_per_class, gt_per_class):
+    box_y1, box_x1, box_y2, box_x2, _ = result_per_class.tensor_split(5, dim=1)
+    gt_y1, gt_x1, gt_y2, gt_x2 = gt_per_class.tensor_split(4, dim=1)
+
+    box_area = (box_y2 - box_y1) * (box_x2 - box_x1)
+    gt_area = (gt_y2 - gt_y1) * (gt_x2 - gt_x1)
+
+    x_top = torch.maximum(box_x1, gt_x1.transpose(0, 1))
+    y_top = torch.maximum(box_y1, gt_y1.transpose(0, 1))
+    x_bottom = torch.minimum(box_x2, gt_x2.transpose(0, 1))
+    y_bottom = torch.minimum(box_y2, gt_y2.transpose(0, 1))
+
+    inter_area = torch.maximum(x_bottom - x_top, torch.tensor(0)) * torch.max(y_bottom - y_top, torch.tensor(0))
+    union_area = box_area + torch.transpose(gt_area, 1, 0) - inter_area
+    iou = inter_area / union_area
+
+    return iou
+
+
 # %% ARGS
 path = "./module/mmdetection"
 
@@ -244,7 +263,6 @@ args = argparse.Namespace(
 #%% CONFIG ASSIGN
 model, data_loader, cfg = build_model_datasets(args, "train", path)
 
-#%% ANCHOR LOADER
 anchor_cfg = cfg.model.bbox_head.anchor_generator
 anchor_type = anchor_cfg.type
 octave_base_scale = anchor_cfg.octave_base_scale
@@ -258,10 +276,14 @@ anchor_gerator = AnchorGenerator(strides=strides,
                                  scales_per_octave=scales_per_octave
                                  )
 
+#%%
 results, dataset = predict_dataset(model, data_loader)
 
 #%%
-for i, result in enumerate(results):break
+iou_thr = 0.5
+
+gt_fns = []
+for i, result in enumerate(results):
     img_metas = dataset[i]["img_metas"][0].data
     ori_shape = img_metas["ori_shape"][:2]
     pad_shape = img_metas["pad_shape"][:2]
@@ -271,20 +293,35 @@ for i, result in enumerate(results):break
 
     ann = dataset.get_ann_info(i)
     gt_label = ann["labels"]
+    if gt_label.shape[0] == 0:
+        gt_fns.append(torch.tensor([]).to(cfg.device))
+        continue
+    gt_label = torch.tensor(gt_label).to(cfg.device)
     gt_box = ann["bboxes"]
-    gt_box = torch.tensor(gt_box) / box_norm_factor
+    gt_box = (torch.tensor(gt_box) / box_norm_factor).to(cfg.device)
 
     feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / stride)) for stride in strides]
     anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cpu")
     anchors = [anchor / anchor_norm_factor for anchor in  anchors]
+    gt_fn = torch.ones_like(gt_label)
 
-    for c in np.unique(gt_label):break
-        result_per_class = result[c] / np.array(box_norm_factor.tolist() + [1])
+    for c in torch.unique(gt_label):
+        result_per_class = result[c]
+        if result_per_class.shape[0] == 0:
+            continue
+
+        result_per_class = torch.tensor(result_per_class / np.array(box_norm_factor.tolist() + [1])).to(cfg.device)
         gt_per_class = gt_box[gt_label == c]
 
+        iou = compute_iou(result_per_class, gt_per_class)
+        max_iou = torch.max(iou, dim=0).values
+        tp = (max_iou >= 0.5).type(torch.LongTensor).to(cfg.device)
 
+        gt_indices = (gt_label == c).nonzero().squeeze()
+        gt_tp = torch.zeros_like(gt_label).scatter(dim=0, index=gt_indices, src=tp)
+        gt_fn -= gt_tp
 
-
-
-
+    gt_fns.append(gt_fn)
+# %%
+gt_fns
 # %%
