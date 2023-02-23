@@ -1,43 +1,26 @@
 #%%
-import torch
-import numpy as np
-from module.mmdetection.mmdet.apis import init_detector, inference_detector
-from mmdet.core import AnchorGenerator
-
-import argparse
 import os
-import os.path as osp
 import time
+import argparse
 import warnings
-
-import mmcv
 import torch
-from mmcv import Config, DictAction
+import mmcv
+
+import numpy as np
+import os.path as osp
+
+from mmcv import Config
 from mmcv.cnn import fuse_conv_bn
 from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
                          wrap_fp16_model)
-
-from mmdet.apis import multi_gpu_test, single_gpu_test
+# from mmdet.apis import init_detector
 from mmdet.datasets import (build_dataloader, build_dataset,
                             replace_ImageToTensor)
 from mmdet.models import build_detector
-from mmdet.utils import (build_ddp, build_dp, compat_cfg, get_device,
+from mmdet.utils import (build_dp, compat_cfg, get_device,
                          replace_cfg_vals, rfnext_init_model,
                          setup_multi_processes, update_data_root)
-
-import os.path as osp
-import pickle
-import shutil
-import tempfile
-import time
-
-import mmcv
-import torch
-import torch.distributed as dist
-from mmcv.image import tensor2imgs
-from mmcv.runner import get_dist_info
-
-from mmdet.core import encode_mask_results
+from mmdet.core import (encode_mask_results, AnchorGenerator)
 
 
 class FeatureExtractor(torch.nn.Module):
@@ -53,204 +36,153 @@ class FeatureExtractor(torch.nn.Module):
         return x
 
 
-# %% MODEL LOADER
-mm_path = "./module/mmdetection"
+def build_model_datasets(args, split, path, diagnosis=False):
+    if 'LOCAL_RANK' not in os.environ:
+        os.environ['LOCAL_RANK'] = str(args.local_rank)
 
-# config_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco.py"
-# checkpoint_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco_20210719_215349-d18dff72.pth"
-config_file = f"{mm_path}/retinanet_r101_fpn_1x_coco.py"
-checkpoint_file = f"{mm_path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
-# config_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco.py"
-# checkpoint_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
-
-model = init_detector(config_file, checkpoint_file)
-
-#%% CONFIG ASSIGN
-cfg = model.cfg
-anchor_cfg = cfg.model.bbox_head.anchor_generator
-anchor_type = anchor_cfg.type
-octave_base_scale = anchor_cfg.octave_base_scale
-scales_per_octave = anchor_cfg.scales_per_octave
-ratios = anchor_cfg.ratios
-strides = anchor_cfg.strides
-
-cfg.data.test.ann_file = f'{mm_path}/data/coco/annotations/instances_train2017.json'
-cfg.data.test.img_prefix = f'{mm_path}/data/coco/train2017/'
-
-args = argparse.Namespace(
-    config = config_file,
-    checkpoint = checkpoint_file,
-    out=None,
-    eval="bbox",
-    format_only=None,
-    show=None,
-    show_dir=None,
-    gpu_ids = None,
-    gpu_id = 0,
-    show_score_thr = 0.3,
-    launcher="none",
-    local_rank=0,
-    cfg_options=None,
-    work_dir = None,
-    fuse_conv_bn = None,
-    gpu_collect = None,
-    tmpdir = None,
-    options = {"classwise":True},
-    eval_options = None
-)
-
-#%% ANCHOR LOADER
-anchor_gerator = AnchorGenerator(strides=strides,
-                                 ratios=ratios,
-                                 octave_base_scale=octave_base_scale,
-                                 scales_per_octave=scales_per_octave
-                                 )
-
-SubModel = FeatureExtractor(model)
-
-from mmdet.datasets import replace_ImageToTensor
+    if args.options and args.eval_options:
+        raise ValueError(
+            '--options and --eval-options cannot be both '
+            'specified, --options is deprecated in favor of --eval-options')
+    if args.options:
+        warnings.warn('--options is deprecated in favor of --eval-options')
+        args.eval_options = args.options
 
 
+    assert args.out or args.eval or args.format_only or args.show \
+        or args.show_dir, \
+        ('Please specify at least one operation (save/eval/format/show the '
+            'results / save the results) with the argument "--out", "--eval"'
+            ', "--format-only", "--show" or "--show-dir"')
 
-cfg.model.test_cfg.nms
-cfg["model"]["test_cfg"]["nms"] = None
+    if args.eval and args.format_only:
+        raise ValueError('--eval and --format_only cannot be both specified')
 
+    if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):
+        raise ValueError('The output file must be a pkl file.')
 
-#%% DATA AND MODEL LOADER
-if 'LOCAL_RANK' not in os.environ:
-    os.environ['LOCAL_RANK'] = str(args.local_rank)
+    cfg = Config.fromfile(args.config)
 
-if args.options and args.eval_options:
-    raise ValueError(
-        '--options and --eval-options cannot be both '
-        'specified, --options is deprecated in favor of --eval-options')
-if args.options:
-    warnings.warn('--options is deprecated in favor of --eval-options')
-    args.eval_options = args.options
+    # replace the ${key} with the value of cfg.key
+    cfg = replace_cfg_vals(cfg)
 
+    # update data root according to MMDET_DATASETS
+    update_data_root(cfg)
 
-assert args.out or args.eval or args.format_only or args.show \
-    or args.show_dir, \
-    ('Please specify at least one operation (save/eval/format/show the '
-        'results / save the results) with the argument "--out", "--eval"'
-        ', "--format-only", "--show" or "--show-dir"')
+    if args.cfg_options is not None:
+        cfg.merge_from_dict(args.cfg_options)
 
-if args.eval and args.format_only:
-    raise ValueError('--eval and --format_only cannot be both specified')
+    cfg = compat_cfg(cfg)
 
-if args.out is not None and not args.out.endswith(('.pkl', '.pickle')):
-    raise ValueError('The output file must be a pkl file.')
+    # set multi-process settings
+    setup_multi_processes(cfg)
 
-cfg = Config.fromfile(args.config)
+    # set cudnn_benchmark
+    if cfg.get('cudnn_benchmark', False):
+        torch.backends.cudnn.benchmark = True
 
-# replace the ${key} with the value of cfg.key
-cfg = replace_cfg_vals(cfg)
+    if 'pretrained' in cfg.model:
+        cfg.model.pretrained = None
+    elif 'init_cfg' in cfg.model.backbone:
+        cfg.model.backbone.init_cfg = None
 
-# update data root according to MMDET_DATASETS
-update_data_root(cfg)
+    if cfg.model.get('neck'):
+        if isinstance(cfg.model.neck, list):
+            for neck_cfg in cfg.model.neck:
+                if neck_cfg.get('rfp_backbone'):
+                    if neck_cfg.rfp_backbone.get('pretrained'):
+                        neck_cfg.rfp_backbone.pretrained = None
+        elif cfg.model.neck.get('rfp_backbone'):
+            if cfg.model.neck.rfp_backbone.get('pretrained'):
+                cfg.model.neck.rfp_backbone.pretrained = None
 
-if args.cfg_options is not None:
-    cfg.merge_from_dict(args.cfg_options)
+    if args.gpu_ids is not None:
+        cfg.gpu_ids = args.gpu_ids[0:1]
+        warnings.warn('`--gpu-ids` is deprecated, please use `--gpu-id`. '
+                        'Because we only support single GPU mode in '
+                        'non-distributed testing. Use the first GPU '
+                        'in `gpu_ids` now.')
+    else:
+        cfg.gpu_ids = [args.gpu_id]
+    cfg.device = get_device()
+    # init distributed env first, since logger depends on the dist info.
+    if args.launcher == 'none':
+        distributed = False
+    else:
+        distributed = True
+        init_dist(args.launcher, **cfg.dist_params)
 
-cfg = compat_cfg(cfg)
+    test_dataloader_default_args = dict(
+        samples_per_gpu=1, workers_per_gpu=2, dist=distributed, shuffle=False)
 
-# set multi-process settings
-setup_multi_processes(cfg)
-
-# set cudnn_benchmark
-if cfg.get('cudnn_benchmark', False):
-    torch.backends.cudnn.benchmark = True
-
-if 'pretrained' in cfg.model:
-    cfg.model.pretrained = None
-elif 'init_cfg' in cfg.model.backbone:
-    cfg.model.backbone.init_cfg = None
-
-if cfg.model.get('neck'):
-    if isinstance(cfg.model.neck, list):
-        for neck_cfg in cfg.model.neck:
-            if neck_cfg.get('rfp_backbone'):
-                if neck_cfg.rfp_backbone.get('pretrained'):
-                    neck_cfg.rfp_backbone.pretrained = None
-    elif cfg.model.neck.get('rfp_backbone'):
-        if cfg.model.neck.rfp_backbone.get('pretrained'):
-            cfg.model.neck.rfp_backbone.pretrained = None
-
-if args.gpu_ids is not None:
-    cfg.gpu_ids = args.gpu_ids[0:1]
-    warnings.warn('`--gpu-ids` is deprecated, please use `--gpu-id`. '
-                    'Because we only support single GPU mode in '
-                    'non-distributed testing. Use the first GPU '
-                    'in `gpu_ids` now.')
-else:
-    cfg.gpu_ids = [args.gpu_id]
-cfg.device = get_device()
-# init distributed env first, since logger depends on the dist info.
-if args.launcher == 'none':
-    distributed = False
-else:
-    distributed = True
-    init_dist(args.launcher, **cfg.dist_params)
-
-test_dataloader_default_args = dict(
-    samples_per_gpu=1, workers_per_gpu=2, dist=distributed, shuffle=False)
-
-# in case the test dataset is concatenated
-if isinstance(cfg.data.test, dict):
-    cfg.data.test.test_mode = True
-    if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
-        # Replace 'ImageToTensor' to 'DefaultFormatBundle'
-        cfg.data.test.pipeline = replace_ImageToTensor(
-            cfg.data.test.pipeline)
-elif isinstance(cfg.data.test, list):
-    for ds_cfg in cfg.data.test:
-        ds_cfg.test_mode = True
-    if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
+    # in case the test dataset is concatenated
+    if isinstance(cfg.data.test, dict):
+        cfg.data.test.test_mode = True
+        if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
+            # Replace 'ImageToTensor' to 'DefaultFormatBundle'
+            cfg.data.test.pipeline = replace_ImageToTensor(
+                cfg.data.test.pipeline)
+    elif isinstance(cfg.data.test, list):
         for ds_cfg in cfg.data.test:
-            ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
+            ds_cfg.test_mode = True
+        if cfg.data.test_dataloader.get('samples_per_gpu', 1) > 1:
+            for ds_cfg in cfg.data.test:
+                ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
 
-test_loader_cfg = {
-    **test_dataloader_default_args,
-    **cfg.data.get('test_dataloader', {})
-}
+    test_loader_cfg = {
+        **test_dataloader_default_args,
+        **cfg.data.get('test_dataloader', {})
+    }
 
-rank, _ = get_dist_info()
-# allows not to create
-if args.work_dir is not None and rank == 0:
-    mmcv.mkdir_or_exist(osp.abspath(args.work_dir))
-    timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
-    json_file = osp.join(args.work_dir, f'eval_{timestamp}.json')
+    rank, _ = get_dist_info()
+    # allows not to create
+    if args.work_dir is not None and rank == 0:
+        mmcv.mkdir_or_exist(osp.abspath(args.work_dir))
+        timestamp = time.strftime('%Y%m%d_%H%M%S', time.localtime())
+        json_file = osp.join(args.work_dir, f'eval_{timestamp}.json')
 
-# build the dataloader
-dataset = build_dataset(cfg.data.test)
-data_loader = build_dataloader(dataset, **test_loader_cfg)
-
-# build the model and load checkpoint
-cfg.model.train_cfg = None
-model = build_detector(cfg.model, test_cfg=cfg.get('test_cfg'))
-# init rfnext if 'RFSearchHook' is defined in cfg
-rfnext_init_model(model, cfg=cfg)
-fp16_cfg = cfg.get('fp16', None)
-if fp16_cfg is None and cfg.get('device', None) == 'npu':
-    fp16_cfg = dict(loss_scale='dynamic')
-if fp16_cfg is not None:
-    wrap_fp16_model(model)
-checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
-if args.fuse_conv_bn:
-    model = fuse_conv_bn(model)
-# old versions did not save class info in checkpoints, this walkaround is
-# for backward compatibility
-if 'CLASSES' in checkpoint.get('meta', {}):
-    model.CLASSES = checkpoint['meta']['CLASSES']
-else:
-    model.CLASSES = dataset.CLASSES
-
-if not distributed:
-    model = build_dp(model, cfg.device, device_ids=cfg.gpu_ids)
     
+    cfg.data.test.ann_file = f'{path}/data/coco/annotations/instances_{split}2017.json'
+    cfg.data.test.img_prefix = f'{path}/data/coco/{split}2017/'
 
-#%% MODEL OUTPUT
-def single_gpu_test(model, data_loader,):
+    # build the dataloader
+    dataset = build_dataset(cfg.data.test)
+    data_loader = build_dataloader(dataset, **test_loader_cfg)
+
+    # build the model and load checkpoint
+    cfg.model.train_cfg = None
+    if diagnosis: 
+        cfg.model.test_cfg.nms = None
+        cfg.model.test_cfg.score_thr = 1e-3
+    else:
+        cfg.model.test_cfg.score_thr = 0.3
+
+    model = build_detector(cfg.model, test_cfg=cfg.get('test_cfg'))
+
+    # init rfnext if 'RFSearchHook' is defined in cfg
+    rfnext_init_model(model, cfg=cfg)
+    fp16_cfg = cfg.get('fp16', None)
+    if fp16_cfg is None and cfg.get('device', None) == 'npu':
+        fp16_cfg = dict(loss_scale='dynamic')
+    if fp16_cfg is not None:
+        wrap_fp16_model(model)
+    checkpoint = load_checkpoint(model, args.checkpoint, map_location='cpu')
+    if args.fuse_conv_bn:
+        model = fuse_conv_bn(model)
+    # old versions did not save class info in checkpoints, this walkaround is
+    # for backward compatibility
+    if 'CLASSES' in checkpoint.get('meta', {}):
+        model.CLASSES = checkpoint['meta']['CLASSES']
+    else:
+        model.CLASSES = dataset.CLASSES
+
+    if not distributed:
+        model = build_dp(model, cfg.device, device_ids=cfg.gpu_ids)
+
+    return model, data_loader, cfg
+
+
+def predict_dataset(model, data_loader,):
     model.eval()
     results = []
     dataset = data_loader.dataset
@@ -274,34 +206,85 @@ def single_gpu_test(model, data_loader,):
         results.extend(result)
         prog_bar.update()
     
-    return results
+    return results, dataset
+
+
+# %% ARGS
+path = "./module/mmdetection"
+
+# config_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco.py"
+# checkpoint_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco_20210719_215349-d18dff72.pth"
+config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
+checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
+# config_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco.py"
+# checkpoint_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
+
+args = argparse.Namespace(
+    config = config_file,
+    checkpoint = checkpoint_file,
+    out=None,
+    eval="bbox",
+    format_only=None,
+    show=None,
+    show_dir=None,
+    gpu_ids = None,
+    gpu_id = 0,
+    show_score_thr = 0.3,
+    launcher="none",
+    local_rank=0,
+    cfg_options=None,
+    work_dir = None,
+    fuse_conv_bn = None,
+    gpu_collect = None,
+    tmpdir = None,
+    options = {"classwise":True},
+    eval_options = None
+)
+
+#%% CONFIG ASSIGN
+model, data_loader, cfg = build_model_datasets(args, "train", path)
+
+#%% ANCHOR LOADER
+anchor_cfg = cfg.model.bbox_head.anchor_generator
+anchor_type = anchor_cfg.type
+octave_base_scale = anchor_cfg.octave_base_scale
+scales_per_octave = anchor_cfg.scales_per_octave
+ratios = anchor_cfg.ratios
+strides = anchor_cfg.strides
+
+anchor_gerator = AnchorGenerator(strides=strides,
+                                 ratios=ratios,
+                                 octave_base_scale=octave_base_scale,
+                                 scales_per_octave=scales_per_octave
+                                 )
+
+results, dataset = predict_dataset(model, data_loader)
 
 #%%
-
 for i, result in enumerate(results):break
+    img_metas = dataset[i]["img_metas"][0].data
+    ori_shape = img_metas["ori_shape"][:2]
+    pad_shape = img_metas["pad_shape"][:2]
+
+    box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,))
+    anchor_norm_factor = torch.tile(torch.tensor([pad_shape[1], pad_shape[0]]), (2,))
+
+    ann = dataset.get_ann_info(i)
+    gt_label = ann["labels"]
+    gt_box = ann["bboxes"]
+    gt_box = torch.tensor(gt_box) / box_norm_factor
+
+    feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / stride)) for stride in strides]
+    anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cpu")
+    anchors = [anchor / anchor_norm_factor for anchor in  anchors]
+
+    for c in np.unique(gt_label):break
+        result_per_class = result[c] / np.array(box_norm_factor.tolist() + [1])
+        gt_per_class = gt_box[gt_label == c]
 
 
-# img = torch.unsqueeze(dataset[i]["img"][0], 0).to(cfg.device)
-
-img_metas = dataset[i]["img_metas"][0].data
-ori_shape = img_metas["ori_shape"][:2]
-pad_shape = img_metas["pad_shape"][:2]
-
-box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,))
-anchor_norm_factor = torch.tile(torch.tensor([pad_shape[1], pad_shape[0]]), (2,))
-
-ann = dataset.get_ann_info(i)
-gt_label = ann["labels"]
-gt_box = ann["bboxes"]
-gt_box = torch.tensor(gt_box) / box_norm_factor
-
-feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / stride)) for stride in strides]
-anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cpu")
-anchors = [anchor / anchor_norm_factor for anchor in  anchors]
-
-result[0] / np.array(box_norm_factor.tolist() + [1])
-# necks = SubModel(img)
-# feature_map_shapes = [tuple(neck.shape[-2:]) for neck in necks]
-# necks[0].shape
 
 
+
+
+# %%
