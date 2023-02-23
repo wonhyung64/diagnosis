@@ -250,11 +250,7 @@ if not distributed:
     
 
 #%% MODEL OUTPUT
-def single_gpu_test(model,
-                    data_loader,
-                    show=False,
-                    out_dir=None,
-                    show_score_thr=0.3):
+def single_gpu_test(model, data_loader,):
     model.eval()
     results = []
     dataset = data_loader.dataset
@@ -277,6 +273,8 @@ def single_gpu_test(model,
 
         results.extend(result)
         prog_bar.update()
+    
+    return results
 
 #%%
 
@@ -301,7 +299,7 @@ feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / st
 anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cpu")
 anchors = [anchor / anchor_norm_factor for anchor in  anchors]
 
-result / np.array(box_norm_factor.tolist() + [1])
+result[0] / np.array(box_norm_factor.tolist() + [1])
 # necks = SubModel(img)
 # feature_map_shapes = [tuple(neck.shape[-2:]) for neck in necks]
 # necks[0].shape
