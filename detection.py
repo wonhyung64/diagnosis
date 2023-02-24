@@ -154,6 +154,7 @@ def build_model_datasets(args, split, path, diagnosis=False):
     if diagnosis: 
         cfg.model.test_cfg.nms = None
         cfg.model.test_cfg.score_thr = 1e-3
+        cfg.model.test_cfg.max_per_img = None
     else:
         cfg.model.test_cfg.score_thr = 0.3
 
@@ -228,6 +229,32 @@ def compute_iou(result_per_class, gt_per_class):
     return iou
 
 
+def build_args(config_file, checkpoint_file):
+    args = argparse.Namespace(
+        config = config_file,
+        checkpoint = checkpoint_file,
+        out=None,
+        eval="bbox",
+        format_only=None,
+        show=None,
+        show_dir=None,
+        gpu_ids = None,
+        gpu_id = 0,
+        show_score_thr = 0.3,
+        launcher="none",
+        local_rank=0,
+        cfg_options=None,
+        work_dir = None,
+        fuse_conv_bn = None,
+        gpu_collect = None,
+        tmpdir = None,
+        options = {"classwise":True},
+        eval_options = None
+    )
+    
+    return args
+
+
 # %% ARGS
 path = "./module/mmdetection"
 
@@ -238,30 +265,65 @@ checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
 # config_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco.py"
 # checkpoint_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
 
-args = argparse.Namespace(
-    config = config_file,
-    checkpoint = checkpoint_file,
-    out=None,
-    eval="bbox",
-    format_only=None,
-    show=None,
-    show_dir=None,
-    gpu_ids = None,
-    gpu_id = 0,
-    show_score_thr = 0.3,
-    launcher="none",
-    local_rank=0,
-    cfg_options=None,
-    work_dir = None,
-    fuse_conv_bn = None,
-    gpu_collect = None,
-    tmpdir = None,
-    options = {"classwise":True},
-    eval_options = None
-)
 
 #%% CONFIG ASSIGN
+args = build_args(config_file, checkpoint_file)
 model, data_loader, cfg = build_model_datasets(args, "train", path)
+
+
+#%%
+results, dataset = predict_dataset(model, data_loader)
+
+#%%
+iou_thr = 0.5
+from tqdm import tqdm
+
+def find_fn(results, dataset):
+    gt_fns = []
+
+    for i, result in enumerate(tqdm(results)):
+        img_metas = dataset[i]["img_metas"][0].data
+        ori_shape = img_metas["ori_shape"][:2]
+
+        box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,))
+
+        ann = dataset.get_ann_info(i)
+        gt_label = ann["labels"]
+        if gt_label.shape[0] == 0:
+            gt_fns.append(torch.tensor([]).to(cfg.device))
+            continue
+        gt_label = torch.tensor(gt_label).to(cfg.device)
+        gt_box = ann["bboxes"]
+        gt_box = (torch.tensor(gt_box) / box_norm_factor).to(cfg.device)
+
+        gt_fn = torch.ones_like(gt_label)
+        for c in torch.unique(gt_label):
+            result_per_class = result[c]
+            if result_per_class.shape[0] == 0:
+                continue
+
+            result_per_class = torch.tensor(result_per_class / np.array(box_norm_factor.tolist() + [1])).to(cfg.device)
+            gt_per_class = gt_box[gt_label == c]
+
+            iou = compute_iou(result_per_class, gt_per_class)
+            max_iou = torch.max(iou, dim=0).values
+            tp = (max_iou >= 0.5).type(torch.LongTensor).to(cfg.device)
+
+            gt_indices = (gt_label == c).nonzero().squeeze()
+            gt_tp = torch.zeros_like(gt_label).scatter(dim=0, index=gt_indices, src=tp)
+            gt_fn -= gt_tp
+
+        gt_fns.append(gt_fn)
+
+    return gt_fns
+
+gt_fns = find_fn(results, dataset)
+
+# %%
+args = build_args(config_file, checkpoint_file)
+model, data_loader, cfg = build_model_datasets(args, "train", path, diagnosis=True)
+results, dataset = predict_dataset(model, data_loader)
+
 
 anchor_cfg = cfg.model.bbox_head.anchor_generator
 anchor_type = anchor_cfg.type
@@ -277,51 +339,57 @@ anchor_gerator = AnchorGenerator(strides=strides,
                                  )
 
 #%%
-results, dataset = predict_dataset(model, data_loader)
+i=2
 
-#%%
-iou_thr = 0.5
-
-gt_fns = []
-for i, result in enumerate(results):
+for i, result in enumerate(results):break
+    gt_fn_bool = gt_fns[i].type(torch.BoolTensor).to(cfg.device)
     img_metas = dataset[i]["img_metas"][0].data
     ori_shape = img_metas["ori_shape"][:2]
     pad_shape = img_metas["pad_shape"][:2]
 
-    box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,))
-    anchor_norm_factor = torch.tile(torch.tensor([pad_shape[1], pad_shape[0]]), (2,))
+    box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,)).to(cfg.device)
+    anchor_norm_factor = torch.tile(torch.tensor([pad_shape[1], pad_shape[0]]), (2,)).to(cfg.device)
 
     ann = dataset.get_ann_info(i)
-    gt_label = ann["labels"]
-    if gt_label.shape[0] == 0:
-        gt_fns.append(torch.tensor([]).to(cfg.device))
+    gt_label = torch.tensor(ann["labels"]).to(cfg.device)
+    gt_box = torch.tensor(ann["bboxes"]).to(cfg.device)
+
+
+    fn_box = gt_box[gt_fn_bool]
+    tp_box = gt_box[~gt_fn_bool]
+
+    fn_label = gt_label[gt_fn_bool]
+    tp_label = gt_label[~gt_fn_bool]
+
+    if fn_label.shape[0] == 0:
         continue
-    gt_label = torch.tensor(gt_label).to(cfg.device)
-    gt_box = ann["bboxes"]
-    gt_box = (torch.tensor(gt_box) / box_norm_factor).to(cfg.device)
+
+    total_box = torch.tensor(np.vstack(result)[:, :4]).to(cfg.device) / box_norm_factor
+    fn_box = fn_box / box_norm_factor
+
+    iou = compute_iou(total_box, fn_box)
+    max_iou = torch.max(iou, dim=0).values
+    cls_fn = (max_iou >= iou_thr).to(cfg.device)
 
     feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / stride)) for stride in strides]
-    anchors = anchor_gerator.grid_anchors(feature_map_shapes, device="cpu")
-    anchors = [anchor / anchor_norm_factor for anchor in  anchors]
-    gt_fn = torch.ones_like(gt_label)
+    anchors = anchor_gerator.grid_anchors(feature_map_shapes, device=cfg.device)
+    anchor_box = torch.concat(anchors, dim=0) / anchor_norm_factor
 
-    for c in torch.unique(gt_label):
-        result_per_class = result[c]
-        if result_per_class.shape[0] == 0:
-            continue
+    iou = compute_iou(anchor_box, fn_box[~cls_fn])
+    max_iou = torch.max(iou, dim=0).values
 
-        result_per_class = torch.tensor(result_per_class / np.array(box_norm_factor.tolist() + [1])).to(cfg.device)
-        gt_per_class = gt_box[gt_label == c]
+    box_fn = (max_iou >= iou_thr)
+    box_fn_indices = (~cls_fn).nonzero().squeeze()
+    reg_fn = torch.zeros_like(cls_fn).scatter(dim=0, index=box_fn_indices, src=box_fn)
 
-        iou = compute_iou(result_per_class, gt_per_class)
-        max_iou = torch.max(iou, dim=0).values
-        tp = (max_iou >= 0.5).type(torch.LongTensor).to(cfg.device)
+    rpn_fn = torch.logical_and(~reg_fn, ~cls_fn)
+    
+    tp_box
+    cls_fn_box = fn_box[cls_fn]
+    reg_fn_box = fn_box[reg_fn]
+    rpn_fn_box = fn_box[rpn_fn]
 
-        gt_indices = (gt_label == c).nonzero().squeeze()
-        gt_tp = torch.zeros_like(gt_label).scatter(dim=0, index=gt_indices, src=tp)
-        gt_fn -= gt_tp
-
-    gt_fns.append(gt_fn)
-# %%
-gt_fns
-# %%
+    tp_label
+    cls_fn_label = fn_label[cls_fn]
+    reg_fn_label = fn_label[reg_fn]
+    rpn_fn_label = fn_label[rpn_fn]
