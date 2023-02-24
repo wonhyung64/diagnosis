@@ -9,6 +9,7 @@ import mmcv
 import numpy as np
 import os.path as osp
 
+from tqdm import tqdm
 from mmcv import Config
 from mmcv.cnn import fuse_conv_bn
 from mmcv.runner import (get_dist_info, init_dist, load_checkpoint,
@@ -21,6 +22,46 @@ from mmdet.utils import (build_dp, compat_cfg, get_device,
                          replace_cfg_vals, rfnext_init_model,
                          setup_multi_processes, update_data_root)
 from mmdet.core import (encode_mask_results, AnchorGenerator)
+
+
+def find_fn(results, dataset):
+    gt_fns = []
+
+    for i, result in enumerate(tqdm(results)):
+        img_metas = dataset[i]["img_metas"][0].data
+        ori_shape = img_metas["ori_shape"][:2]
+
+        box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,))
+
+        ann = dataset.get_ann_info(i)
+        gt_label = ann["labels"]
+        if gt_label.shape[0] == 0:
+            gt_fns.append(torch.tensor([]).to(cfg.device))
+            continue
+        gt_label = torch.tensor(gt_label).to(cfg.device)
+        gt_box = ann["bboxes"]
+        gt_box = (torch.tensor(gt_box) / box_norm_factor).to(cfg.device)
+
+        gt_fn = torch.ones_like(gt_label)
+        for c in torch.unique(gt_label):
+            result_per_class = result[c]
+            if result_per_class.shape[0] == 0:
+                continue
+
+            result_per_class = torch.tensor(result_per_class / np.array(box_norm_factor.tolist() + [1])).to(cfg.device)
+            gt_per_class = gt_box[gt_label == c]
+
+            iou = compute_iou(result_per_class, gt_per_class)
+            max_iou = torch.max(iou, dim=0).values
+            tp = (max_iou >= 0.5).type(torch.LongTensor).to(cfg.device)
+
+            gt_indices = (gt_label == c).nonzero().squeeze()
+            gt_tp = torch.zeros_like(gt_label).scatter(dim=0, index=gt_indices, src=tp)
+            gt_fn -= gt_tp
+
+        gt_fns.append(gt_fn)
+
+    return gt_fns
 
 
 class FeatureExtractor(torch.nn.Module):
@@ -276,46 +317,6 @@ results, dataset = predict_dataset(model, data_loader)
 
 #%%
 iou_thr = 0.5
-from tqdm import tqdm
-
-def find_fn(results, dataset):
-    gt_fns = []
-
-    for i, result in enumerate(tqdm(results)):
-        img_metas = dataset[i]["img_metas"][0].data
-        ori_shape = img_metas["ori_shape"][:2]
-
-        box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,))
-
-        ann = dataset.get_ann_info(i)
-        gt_label = ann["labels"]
-        if gt_label.shape[0] == 0:
-            gt_fns.append(torch.tensor([]).to(cfg.device))
-            continue
-        gt_label = torch.tensor(gt_label).to(cfg.device)
-        gt_box = ann["bboxes"]
-        gt_box = (torch.tensor(gt_box) / box_norm_factor).to(cfg.device)
-
-        gt_fn = torch.ones_like(gt_label)
-        for c in torch.unique(gt_label):
-            result_per_class = result[c]
-            if result_per_class.shape[0] == 0:
-                continue
-
-            result_per_class = torch.tensor(result_per_class / np.array(box_norm_factor.tolist() + [1])).to(cfg.device)
-            gt_per_class = gt_box[gt_label == c]
-
-            iou = compute_iou(result_per_class, gt_per_class)
-            max_iou = torch.max(iou, dim=0).values
-            tp = (max_iou >= 0.5).type(torch.LongTensor).to(cfg.device)
-
-            gt_indices = (gt_label == c).nonzero().squeeze()
-            gt_tp = torch.zeros_like(gt_label).scatter(dim=0, index=gt_indices, src=tp)
-            gt_fn -= gt_tp
-
-        gt_fns.append(gt_fn)
-
-    return gt_fns
 
 gt_fns = find_fn(results, dataset)
 
@@ -323,7 +324,6 @@ gt_fns = find_fn(results, dataset)
 args = build_args(config_file, checkpoint_file)
 model, data_loader, cfg = build_model_datasets(args, "train", path, diagnosis=True)
 results, dataset = predict_dataset(model, data_loader)
-
 
 anchor_cfg = cfg.model.bbox_head.anchor_generator
 anchor_type = anchor_cfg.type
@@ -339,9 +339,9 @@ anchor_gerator = AnchorGenerator(strides=strides,
                                  )
 
 #%%
-i=2
 
-for i, result in enumerate(results):break
+for i, result in enumerate(results):
+    if i == 3: break
     gt_fn_bool = gt_fns[i].type(torch.BoolTensor).to(cfg.device)
     img_metas = dataset[i]["img_metas"][0].data
     ori_shape = img_metas["ori_shape"][:2]
@@ -393,3 +393,7 @@ for i, result in enumerate(results):break
     cls_fn_label = fn_label[cls_fn]
     reg_fn_label = fn_label[reg_fn]
     rpn_fn_label = fn_label[rpn_fn]
+
+    rpn_fn_box.type()
+    reg_fn_box.type()
+    
