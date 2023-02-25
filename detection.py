@@ -24,9 +24,10 @@ from mmdet.utils import (build_dp, compat_cfg, get_device,
 from mmdet.core import (encode_mask_results, AnchorGenerator)
 
 
-def find_fn(results, dataset):
-    gt_fns = []
+def find_fn(results, dataset, cfg):
 
+    print("FIND FALSE NEGATIVEs")    
+    gt_fns = []
     for i, result in enumerate(tqdm(results)):
         img_metas = dataset[i]["img_metas"][0].data
         ori_shape = img_metas["ori_shape"][:2]
@@ -230,7 +231,7 @@ def predict_dataset(model, data_loader,):
     dataset = data_loader.dataset
     prog_bar = mmcv.ProgressBar(len(dataset))
     for i, data in enumerate(data_loader):
-        if i == 100: break
+        # if i == 100: break
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
         
@@ -332,68 +333,82 @@ scales_per_octave = anchor_cfg.scales_per_octave
 ratios = anchor_cfg.ratios
 strides = anchor_cfg.strides
 
-anchor_gerator = AnchorGenerator(strides=strides,
+anchor_generator = AnchorGenerator(strides=strides,
                                  ratios=ratios,
                                  octave_base_scale=octave_base_scale,
                                  scales_per_octave=scales_per_octave
                                  )
 
 #%%
+def false_neg_mechanism(results, dataset, anchor_generator, cfg):
+    fn_mechanism = []
+    print("FALSE NEGATIVE MECHANISM")
+    for i, result in enumerate(tqdm(results)):
+        gt_fn_bool = gt_fns[i].type(torch.BoolTensor).to(cfg.device)
+        img_metas = dataset[i]["img_metas"][0].data
+        ori_shape = img_metas["ori_shape"][:2]
+        pad_shape = img_metas["pad_shape"][:2]
 
-for i, result in enumerate(results):
-    if i == 3: break
-    gt_fn_bool = gt_fns[i].type(torch.BoolTensor).to(cfg.device)
-    img_metas = dataset[i]["img_metas"][0].data
-    ori_shape = img_metas["ori_shape"][:2]
-    pad_shape = img_metas["pad_shape"][:2]
+        box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,)).to(cfg.device)
+        anchor_norm_factor = torch.tile(torch.tensor([pad_shape[1], pad_shape[0]]), (2,)).to(cfg.device)
 
-    box_norm_factor = torch.tile(torch.tensor([ori_shape[1], ori_shape[0]]), (2,)).to(cfg.device)
-    anchor_norm_factor = torch.tile(torch.tensor([pad_shape[1], pad_shape[0]]), (2,)).to(cfg.device)
-
-    ann = dataset.get_ann_info(i)
-    gt_label = torch.tensor(ann["labels"]).to(cfg.device)
-    gt_box = torch.tensor(ann["bboxes"]).to(cfg.device)
+        ann = dataset.get_ann_info(i)
+        gt_label = torch.tensor(ann["labels"]).to(cfg.device)
+        gt_box = torch.tensor(ann["bboxes"]).to(cfg.device) / box_norm_factor
 
 
-    fn_box = gt_box[gt_fn_bool]
-    tp_box = gt_box[~gt_fn_bool]
+        fn_box = gt_box[gt_fn_bool]
+        tp_box = gt_box[~gt_fn_bool]
 
-    fn_label = gt_label[gt_fn_bool]
-    tp_label = gt_label[~gt_fn_bool]
+        fn_label = gt_label[gt_fn_bool]
+        tp_label = gt_label[~gt_fn_bool]
 
-    if fn_label.shape[0] == 0:
-        continue
+        if fn_label.shape[0] == 0:
+            continue
 
-    total_box = torch.tensor(np.vstack(result)[:, :4]).to(cfg.device) / box_norm_factor
-    fn_box = fn_box / box_norm_factor
+        total_box = torch.tensor(np.vstack(result)[:, :4]).to(cfg.device) / box_norm_factor
+        fn_box = fn_box 
 
-    iou = compute_iou(total_box, fn_box)
-    max_iou = torch.max(iou, dim=0).values
-    cls_fn = (max_iou >= iou_thr).to(cfg.device)
+        iou = compute_iou(total_box, fn_box)
+        max_iou = torch.max(iou, dim=0).values
+        cls_fn = (max_iou >= iou_thr).to(cfg.device)
 
-    feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / stride)) for stride in strides]
-    anchors = anchor_gerator.grid_anchors(feature_map_shapes, device=cfg.device)
-    anchor_box = torch.concat(anchors, dim=0) / anchor_norm_factor
+        feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / stride)) for stride in strides]
+        anchors = anchor_generator.grid_anchors(feature_map_shapes, device=cfg.device)
+        anchor_box = torch.concat(anchors, dim=0) / anchor_norm_factor
 
-    iou = compute_iou(anchor_box, fn_box[~cls_fn])
-    max_iou = torch.max(iou, dim=0).values
+        iou = compute_iou(anchor_box, fn_box[~cls_fn])
+        max_iou = torch.max(iou, dim=0).values
 
-    box_fn = (max_iou >= iou_thr)
-    box_fn_indices = (~cls_fn).nonzero().squeeze()
-    reg_fn = torch.zeros_like(cls_fn).scatter(dim=0, index=box_fn_indices, src=box_fn)
+        box_fn = (max_iou >= iou_thr)
+        box_fn_indices = (~cls_fn).nonzero().squeeze()
+        reg_fn = torch.zeros_like(cls_fn).scatter(dim=0, index=box_fn_indices, src=box_fn)
 
-    rpn_fn = torch.logical_and(~reg_fn, ~cls_fn)
+        rpn_fn = torch.logical_and(~reg_fn, ~cls_fn)
+        
+        cls_fn_box = fn_box[cls_fn]
+        reg_fn_box = fn_box[reg_fn]
+        rpn_fn_box = fn_box[rpn_fn]
+
+        tp_label = torch.unsqueeze(tp_label, -1)
+        cls_fn_label = torch.unsqueeze(fn_label[cls_fn], -1)
+        reg_fn_label = torch.unsqueeze(fn_label[reg_fn], -1)
+        rpn_fn_label = torch.unsqueeze(fn_label[rpn_fn], -1)
+
+        fn_mechanism_per_img = torch.cat([
+            torch.cat((torch.zeros_like(tp_label), tp_box, tp_label), dim=-1),
+            torch.cat((torch.ones_like(cls_fn_label) * 1, cls_fn_box, cls_fn_label), dim=-1),
+            torch.cat((torch.ones_like(reg_fn_label) * 2, reg_fn_box, reg_fn_label), dim=-1),
+            torch.cat((torch.ones_like(rpn_fn_label) * 3, rpn_fn_box, rpn_fn_label), dim=-1)
+            ], dim=0)
+        
+        fn_mechanism += fn_mechanism_per_img.tolist()
     
-    tp_box
-    cls_fn_box = fn_box[cls_fn]
-    reg_fn_box = fn_box[reg_fn]
-    rpn_fn_box = fn_box[rpn_fn]
+    return fn_mechanism
+        
 
-    tp_label
-    cls_fn_label = fn_label[cls_fn]
-    reg_fn_label = fn_label[reg_fn]
-    rpn_fn_label = fn_label[rpn_fn]
+# %%
+import pandas as pd
 
-    rpn_fn_box.type()
-    reg_fn_box.type()
-    
+
+fn_df = pd.DataFrame(fn_mechanism, columns=["type", "box_y1", "box_x1", "box_y2", "box_x2", "label"])
