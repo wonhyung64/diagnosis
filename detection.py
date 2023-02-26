@@ -7,6 +7,7 @@ import torch
 import mmcv
 
 import numpy as np
+import pandas as pd
 import os.path as osp
 
 from tqdm import tqdm
@@ -24,7 +25,7 @@ from mmdet.utils import (build_dp, compat_cfg, get_device,
 from mmdet.core import (encode_mask_results, AnchorGenerator)
 
 
-def find_fn(results, dataset, cfg):
+def find_fn(results, dataset, cfg, iou_thr=0.5):
 
     print("FIND FALSE NEGATIVEs")    
     gt_fns = []
@@ -54,7 +55,7 @@ def find_fn(results, dataset, cfg):
 
             iou = compute_iou(result_per_class, gt_per_class)
             max_iou = torch.max(iou, dim=0).values
-            tp = (max_iou >= 0.5).type(torch.LongTensor).to(cfg.device)
+            tp = (max_iou >= iou_thr).type(torch.LongTensor).to(cfg.device)
 
             gt_indices = (gt_label == c).nonzero().squeeze()
             gt_tp = torch.zeros_like(gt_label).scatter(dim=0, index=gt_indices, src=tp)
@@ -65,15 +66,17 @@ def find_fn(results, dataset, cfg):
     return gt_fns
 
 
-class FeatureExtractor(torch.nn.Module):
+class RoIExtractor(torch.nn.Module):
     def __init__(self, model):
         super().__init__()
         self.backbone = model.backbone
         self.neck = model.neck
+        self.rpn = model.rpn_head
     
     def forward(self, x):
         x = self.backbone(x)
         x = self.neck(x)
+        x = self.rpn(x)
         
         return x
 
@@ -231,7 +234,7 @@ def predict_dataset(model, data_loader,):
     dataset = data_loader.dataset
     prog_bar = mmcv.ProgressBar(len(dataset))
     for i, data in enumerate(data_loader):
-        # if i == 100: break
+        if i == 100: break
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
         
@@ -297,50 +300,7 @@ def build_args(config_file, checkpoint_file):
     return args
 
 
-# %% ARGS
-path = "./module/mmdetection"
-
-# config_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco.py"
-# checkpoint_file = f"{mm_path}/yolov3_mobilenetv2_320_300e_coco_20210719_215349-d18dff72.pth"
-config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
-checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
-# config_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco.py"
-# checkpoint_file = f"{mm_path}/faster_rcnn_r50_fpn_1x_coco_20200130-047c8118.pth"
-
-
-#%% CONFIG ASSIGN
-args = build_args(config_file, checkpoint_file)
-model, data_loader, cfg = build_model_datasets(args, "train", path)
-
-
-#%%
-results, dataset = predict_dataset(model, data_loader)
-
-#%%
-iou_thr = 0.5
-
-gt_fns = find_fn(results, dataset)
-
-# %%
-args = build_args(config_file, checkpoint_file)
-model, data_loader, cfg = build_model_datasets(args, "train", path, diagnosis=True)
-results, dataset = predict_dataset(model, data_loader)
-
-anchor_cfg = cfg.model.bbox_head.anchor_generator
-anchor_type = anchor_cfg.type
-octave_base_scale = anchor_cfg.octave_base_scale
-scales_per_octave = anchor_cfg.scales_per_octave
-ratios = anchor_cfg.ratios
-strides = anchor_cfg.strides
-
-anchor_generator = AnchorGenerator(strides=strides,
-                                 ratios=ratios,
-                                 octave_base_scale=octave_base_scale,
-                                 scales_per_octave=scales_per_octave
-                                 )
-
-#%%
-def false_neg_mechanism(results, dataset, anchor_generator, cfg):
+def false_neg_mechanism(results, dataset, anchor_generator, cfg, iou_thr=0.5):
     fn_mechanism = []
     print("FALSE NEGATIVE MECHANISM")
     for i, result in enumerate(tqdm(results)):
@@ -407,8 +367,79 @@ def false_neg_mechanism(results, dataset, anchor_generator, cfg):
     return fn_mechanism
         
 
+# %% ARGS
+path = "./module/mmdetection"
+
+
+# config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
+# checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
+config_file = f"{path}/faster_rcnn_r101_fpn_1x_coco.py"
+checkpoint_file = f"{path}/faster_rcnn_r101_fpn_1x_coco_20200130-f513f705.pth"
+
+
+#%% CONFIG ASSIGN
+args = build_args(config_file, checkpoint_file)
+model, data_loader, cfg = build_model_datasets(args, "train", path)
+results, dataset = predict_dataset(model, data_loader)
+
+#%%
+cfg.model.test_cfg.rpn
+model
+sub_model = RoIExtractor(model)
+img = torch.unsqueeze(dataset[0]["img"][0], 0)
+sub = sub_model(img)
+feat = feat_model(img)
+len(sub)
+len(feat)
+
+len(sub[0])
+
+len(sub[1])
+
+sub[0][2].shape
+sub[0][2][0,0].shape
+sub[1][2].shape
+feat[2].shape
+
+#%%
+gt_fns = find_fn(results, dataset)
+
 # %%
-import pandas as pd
+args = build_args(config_file, checkpoint_file)
+model, data_loader, cfg = build_model_datasets(args, "train", path, diagnosis=True)
+results, dataset = predict_dataset(model, data_loader)
 
+#%%
+anchor_cfg = cfg.model.bbox_head.anchor_generator
+anchor_type = anchor_cfg.type
+octave_base_scale = anchor_cfg.octave_base_scale
+scales_per_octave = anchor_cfg.scales_per_octave
+ratios = anchor_cfg.ratios
+strides = anchor_cfg.strides
 
+anchor_generator = AnchorGenerator(strides=strides,
+                                 ratios=ratios,
+                                 octave_base_scale=octave_base_scale,
+                                 scales_per_octave=scales_per_octave
+                                 )
+
+fn_mechanism = false_neg_mechanism(results, dataset, anchor_generator, cfg)
+
+# %%
 fn_df = pd.DataFrame(fn_mechanism, columns=["type", "box_y1", "box_x1", "box_y2", "box_x2", "label"])
+fn_df.info()
+fn_df["type"].value_counts()
+fn_df.to_csv("fn_retinanet_r101_fpn_1x_coco.csv", index=False)
+pd.read_csv("fn_retinanet_r101_fpn_1x_coco.csv")
+
+model
+model = build_detector(cfg.model, test_cfg=cfg.get('test_cfg'))
+cfg.model.test_cfg
+tmp = sub[1][1][0][:, 0, 0]
+torch.reshape(tmp, [3, 4])
+len(sub)
+model
+cfg.model["bbox_coder"]
+cfg.model.rpn_head.bbox_coder
+model.rpn_head
+model.roi
