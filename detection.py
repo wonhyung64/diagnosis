@@ -442,4 +442,6 @@ model
 cfg.model["bbox_coder"]
 cfg.model.rpn_head.bbox_coder
 model.rpn_head
-model.roi
+cfg.model.roi_extractor
+cfg.model.roi_head.bbox_head.bbox_coder
+cfg.model.rpn_head.bbox_coder
