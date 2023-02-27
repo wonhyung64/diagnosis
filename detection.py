@@ -393,10 +393,10 @@ def false_neg_mechanism(results, dataset, gt_fns, anchor_generator, cfg, iou_thr
 path = "./module/mmdetection"
 
 
-# config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
-# checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
-config_file = f"{path}/configs/resnet_strikes_back/retinanet_r50_fpn_rsb-pretrain_1x_coco.py"
-checkpoint_file = f"{path}/retinanet_r50_fpn_rsb-pretrain_1x_coco_20220113_175432-bd24aae9.pth"
+config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
+checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
+# config_file = f"{path}/configs/resnet_strikes_back/retinanet_r50_fpn_rsb-pretrain_1x_coco.py"
+# checkpoint_file = f"{path}/retinanet_r50_fpn_rsb-pretrain_1x_coco_20220113_175432-bd24aae9.pth"
 
 
 #%% CONFIG ASSIGN
@@ -436,7 +436,8 @@ fn_df = pd.DataFrame(fn_mechanism, columns=[
     ])
 file_name = config_file.split("/")[-1].split(".")[0]
 fn_df.to_csv(f"{file_name}.csv", index=False)
-
+# pd.read_csv(f"{file_name}.csv")
+fn_df["type"].value_counts()
 #%%
 '''
 cfg.model.test_cfg.rpn
