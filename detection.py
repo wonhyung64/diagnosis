@@ -195,7 +195,7 @@ def build_model_datasets(args, split, path, diagnosis=False):
     data_loader = build_dataloader(dataset, **test_loader_cfg)
 
     # build the model and load checkpoint
-    cfg.model.train_cfg = None
+    # cfg.model.train_cfg = None
     if diagnosis: 
         cfg.model.test_cfg.nms = None
         cfg.model.test_cfg.score_thr = 1e-3
@@ -300,7 +300,7 @@ def build_args(config_file, checkpoint_file):
     return args
 
 
-def false_neg_mechanism(results, dataset, anchor_generator, cfg, iou_thr=0.5):
+def false_neg_mechanism(results, dataset, gt_fns, anchor_generator, cfg, iou_thr=0.5):
     fn_mechanism = []
     print("FALSE NEGATIVE MECHANISM")
     for i, result in enumerate(tqdm(results)):
@@ -316,12 +316,32 @@ def false_neg_mechanism(results, dataset, anchor_generator, cfg, iou_thr=0.5):
         gt_label = torch.tensor(ann["labels"]).to(cfg.device)
         gt_box = torch.tensor(ann["bboxes"]).to(cfg.device) / box_norm_factor
 
+        strides = cfg.model.bbox_head.anchor_generator.strides
+        feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / stride)) for stride in strides]
+        anchors = anchor_generator.grid_anchors(feature_map_shapes, device=cfg.device)
+        anchor_box = torch.concat(anchors, dim=0) / anchor_norm_factor
+
+        iou = compute_iou(anchor_box, gt_box)
+        pos_bool = iou >= cfg.model.train_cfg.assigner.pos_iou_thr
+        neg_bool = iou < cfg.model.train_cfg.assigner.neg_iou_thr
+        pos_num = torch.where(pos_bool, 1, 0).sum(dim=0)
+        neg_num = torch.where(neg_bool, 1, 0).sum(dim=0)
+        fg_bg_ratio = pos_num / neg_num
+
+        iou_mean = (torch.where(pos_bool, iou, 0).sum(dim=0) / pos_num).nan_to_num(0)
+        iou_std = (torch.where(pos_bool, iou - iou_mean, 0).square().sum(dim=0) / (pos_num - 1)).sqrt().nan_to_num(0)
+        gt_property = torch.stack([
+            fg_bg_ratio, iou_mean, iou_std
+        ]).T
 
         fn_box = gt_box[gt_fn_bool]
         tp_box = gt_box[~gt_fn_bool]
 
         fn_label = gt_label[gt_fn_bool]
         tp_label = gt_label[~gt_fn_bool]
+
+        fn_property = gt_property[gt_fn_bool]
+        tp_property = gt_property[~gt_fn_bool]
 
         if fn_label.shape[0] == 0:
             continue
@@ -333,9 +353,6 @@ def false_neg_mechanism(results, dataset, anchor_generator, cfg, iou_thr=0.5):
         max_iou = torch.max(iou, dim=0).values
         cls_fn = (max_iou >= iou_thr).to(cfg.device)
 
-        feature_map_shapes = [(np.ceil(pad_shape[0] / stride), np.ceil(pad_shape[1] / stride)) for stride in strides]
-        anchors = anchor_generator.grid_anchors(feature_map_shapes, device=cfg.device)
-        anchor_box = torch.concat(anchors, dim=0) / anchor_norm_factor
 
         iou = compute_iou(anchor_box, fn_box[~cls_fn])
         max_iou = torch.max(iou, dim=0).values
@@ -355,11 +372,16 @@ def false_neg_mechanism(results, dataset, anchor_generator, cfg, iou_thr=0.5):
         reg_fn_label = torch.unsqueeze(fn_label[reg_fn], -1)
         rpn_fn_label = torch.unsqueeze(fn_label[rpn_fn], -1)
 
+        cls_fn_property = fn_property[cls_fn]
+        reg_fn_property = fn_property[reg_fn]
+        rpn_fn_property = fn_property[rpn_fn]
+
+
         fn_mechanism_per_img = torch.cat([
-            torch.cat((torch.zeros_like(tp_label), tp_box, tp_label), dim=-1),
-            torch.cat((torch.ones_like(cls_fn_label) * 1, cls_fn_box, cls_fn_label), dim=-1),
-            torch.cat((torch.ones_like(reg_fn_label) * 2, reg_fn_box, reg_fn_label), dim=-1),
-            torch.cat((torch.ones_like(rpn_fn_label) * 3, rpn_fn_box, rpn_fn_label), dim=-1)
+            torch.cat((torch.zeros_like(tp_label), tp_box, tp_label, tp_property), dim=-1),
+            torch.cat((torch.ones_like(cls_fn_label) * 1, cls_fn_box, cls_fn_label, cls_fn_property), dim=-1),
+            torch.cat((torch.ones_like(reg_fn_label) * 2, reg_fn_box, reg_fn_label, reg_fn_property), dim=-1),
+            torch.cat((torch.ones_like(rpn_fn_label) * 3, rpn_fn_box, rpn_fn_label, rpn_fn_property), dim=-1)
             ], dim=0)
         
         fn_mechanism += fn_mechanism_per_img.tolist()
@@ -406,10 +428,12 @@ anchor_generator = AnchorGenerator(strides=strides,
                                  scales_per_octave=scales_per_octave
                                  )
 
-fn_mechanism = false_neg_mechanism(results, dataset, anchor_generator, cfg)
+fn_mechanism = false_neg_mechanism(results, dataset, gt_fns, anchor_generator, cfg)
 
 # %%
-fn_df = pd.DataFrame(fn_mechanism, columns=["type", "box_x1", "box_y1", "box_x2", "box_y2", "label"])
+fn_df = pd.DataFrame(fn_mechanism, columns=[
+    "type", "box_x1", "box_y1", "box_x2", "box_y2", "label", "fg_bg_ratio", "iou_mean", "iou_std"
+    ])
 file_name = config_file.split("/")[-1].split(".")[0]
 fn_df.to_csv(f"{file_name}.csv", index=False)
 
