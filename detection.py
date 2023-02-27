@@ -234,7 +234,7 @@ def predict_dataset(model, data_loader,):
     dataset = data_loader.dataset
     prog_bar = mmcv.ProgressBar(len(dataset))
     for i, data in enumerate(data_loader):
-        if i == 100: break
+        # if i == 100: break
         with torch.no_grad():
             result = model(return_loss=False, rescale=True, **data)
         
@@ -373,8 +373,8 @@ path = "./module/mmdetection"
 
 # config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
 # checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
-config_file = f"{path}/faster_rcnn_r101_fpn_1x_coco.py"
-checkpoint_file = f"{path}/faster_rcnn_r101_fpn_1x_coco_20200130-f513f705.pth"
+config_file = f"{path}/configs/resnet_strikes_back/retinanet_r50_fpn_rsb-pretrain_1x_coco.py"
+checkpoint_file = f"{path}/retinanet_r50_fpn_rsb-pretrain_1x_coco_20220113_175432-bd24aae9.pth"
 
 
 #%% CONFIG ASSIGN
@@ -383,26 +383,9 @@ model, data_loader, cfg = build_model_datasets(args, "train", path)
 results, dataset = predict_dataset(model, data_loader)
 
 #%%
-cfg.model.test_cfg.rpn
-model
-sub_model = RoIExtractor(model)
-img = torch.unsqueeze(dataset[0]["img"][0], 0)
-sub = sub_model(img)
-feat = feat_model(img)
-len(sub)
-len(feat)
-
-len(sub[0])
-
-len(sub[1])
-
-sub[0][2].shape
-sub[0][2][0,0].shape
-sub[1][2].shape
-feat[2].shape
 
 #%%
-gt_fns = find_fn(results, dataset)
+gt_fns = find_fn(results, dataset, cfg)
 
 # %%
 args = build_args(config_file, checkpoint_file)
@@ -426,11 +409,29 @@ anchor_generator = AnchorGenerator(strides=strides,
 fn_mechanism = false_neg_mechanism(results, dataset, anchor_generator, cfg)
 
 # %%
-fn_df = pd.DataFrame(fn_mechanism, columns=["type", "box_y1", "box_x1", "box_y2", "box_x2", "label"])
-fn_df.info()
-fn_df["type"].value_counts()
-fn_df.to_csv("fn_retinanet_r101_fpn_1x_coco.csv", index=False)
-pd.read_csv("fn_retinanet_r101_fpn_1x_coco.csv")
+fn_df = pd.DataFrame(fn_mechanism, columns=["type", "box_x1", "box_y1", "box_x2", "box_y2", "label"])
+file_name = config_file.split("/")[-1].split(".")[0]
+fn_df.to_csv(f"{file_name}.csv", index=False)
+
+#%%
+'''
+cfg.model.test_cfg.rpn
+model
+sub_model = RoIExtractor(model)
+img = torch.unsqueeze(dataset[0]["img"][0], 0)
+sub = sub_model(img)
+feat = feat_model(img)
+len(sub)
+len(feat)
+
+len(sub[0])
+
+len(sub[1])
+
+sub[0][2].shape
+sub[0][2][0,0].shape
+sub[1][2].shape
+feat[2].shape
 
 model
 model = build_detector(cfg.model, test_cfg=cfg.get('test_cfg'))
@@ -445,3 +446,4 @@ model.rpn_head
 cfg.model.roi_extractor
 cfg.model.roi_head.bbox_head.bbox_coder
 cfg.model.rpn_head.bbox_coder
+'''
