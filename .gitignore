@@ -20,3 +20,5 @@ __pycache__/
 module/mmdetection/
 .DS_Store
 *.csv
+*.out
+*.err
