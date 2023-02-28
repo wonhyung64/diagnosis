@@ -393,10 +393,12 @@ def false_neg_mechanism(results, dataset, gt_fns, anchor_generator, cfg, iou_thr
 path = "./module/mmdetection"
 
 
-config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
-checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
+# config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
+# checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
 # config_file = f"{path}/configs/resnet_strikes_back/retinanet_r50_fpn_rsb-pretrain_1x_coco.py"
 # checkpoint_file = f"{path}/retinanet_r50_fpn_rsb-pretrain_1x_coco_20220113_175432-bd24aae9.pth"
+config_file = f"{path}/retinanet_x101_32x4d_fpn_1x_coco.py"
+checkpoint_file = f"{path}/retinanet_x101_32x4d_fpn_1x_coco_20200130-5c8b7ec4.pth"
 
 
 #%% CONFIG ASSIGN
@@ -405,10 +407,9 @@ model, data_loader, cfg = build_model_datasets(args, "train", path)
 results, dataset = predict_dataset(model, data_loader)
 
 #%%
-
-#%%
 gt_fns = find_fn(results, dataset, cfg)
 
+del results
 # %%
 args = build_args(config_file, checkpoint_file)
 model, data_loader, cfg = build_model_datasets(args, "train", path, diagnosis=True)
@@ -430,14 +431,20 @@ anchor_generator = AnchorGenerator(strides=strides,
 
 fn_mechanism = false_neg_mechanism(results, dataset, gt_fns, anchor_generator, cfg)
 
+
 # %%
 fn_df = pd.DataFrame(fn_mechanism, columns=[
     "type", "box_x1", "box_y1", "box_x2", "box_y2", "label", "fg_bg_ratio", "iou_mean", "iou_std"
     ])
+fn_df["area"] = fn_df.apply(lambda x: (x["box_y2"] - x["box_y1"]) * (x["box_x2"] - x["box_x1"]), axis=1)
+fn_df["ratio"] = fn_df.apply(lambda x: (x["box_y2"] - x["box_y1"]) / (x["box_x2"] - x["box_x1"]), axis=1)
+fn_df["ctr_x"] = fn_df["box_y2"] - fn_df["box_y1"]
+fn_df["ctr_y"] = fn_df["box_x2"] - fn_df["box_x1"]
+
 file_name = config_file.split("/")[-1].split(".")[0]
 fn_df.to_csv(f"{file_name}.csv", index=False)
 # pd.read_csv(f"{file_name}.csv")
-fn_df["type"].value_counts()
+# fn_df["type"].value_counts()
 #%%
 '''
 cfg.model.test_cfg.rpn
