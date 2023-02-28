@@ -392,19 +392,26 @@ def false_neg_mechanism(results, dataset, gt_fns, anchor_generator, cfg, iou_thr
 # %% ARGS
 path = "./module/mmdetection"
 
+parser = argparse.ArgumentParser()
 
+parser.add_argument('--config', type=str)
+parser.add_argument('--checkpoint', type=str)
+args = parser.parse_args()
+
+config_file = f"{path}/{args.config}"
+checkpoint_file = f"{path}/{args.checkpoint}"
 # config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
 # checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
 # config_file = f"{path}/configs/resnet_strikes_back/retinanet_r50_fpn_rsb-pretrain_1x_coco.py"
 # checkpoint_file = f"{path}/retinanet_r50_fpn_rsb-pretrain_1x_coco_20220113_175432-bd24aae9.pth"
-config_file = f"{path}/retinanet_x101_32x4d_fpn_1x_coco.py"
-checkpoint_file = f"{path}/retinanet_x101_32x4d_fpn_1x_coco_20200130-5c8b7ec4.pth"
+# config_file = f"{path}/retinanet_x101_32x4d_fpn_1x_coco.py"
+# checkpoint_file = f"{path}/retinanet_x101_32x4d_fpn_1x_coco_20200130-5c8b7ec4.pth"
 # config_file = f'{path}/yolov3_mobilenetv2_320_300e_coco.py'
 # checkpoint_file = f'{path}/yolov3_mobilenetv2_320_300e_coco_20210719_215349-d18dff72.pth'
-import sys
-import subprocess
-if not os.path.exists(config_file):
-    subprocess.check_call([sys.executable, "-m", "mim", "download", "mmdet", "--config" f"{config_file.split('/')[-1].split('.')[0]}", "--dest", "."])
+# import sys
+# import subprocess
+# if not os.path.exists(config_file):
+#     subprocess.check_call([sys.executable, "-m", "mim", "download", "mmdet", "--config" f"{config_file.split('/')[-1].split('.')[0]}", "--dest", "."])
 #%% CONFIG ASSIGN
 args = build_args(config_file, checkpoint_file)
 model, data_loader, cfg = build_model_datasets(args, "train", path)
