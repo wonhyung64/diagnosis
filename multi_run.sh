@@ -7,7 +7,7 @@ ENV=/home1/wonhyung64/anaconda3/envs/openmmlab/bin/python
 RUN_SRC=./run_src.sh
 
 # file directory of experiment ".py"
-EXECUTION_FILE=/home1/wonhyung64/Github/diagnosis/test.py
+EXECUTION_FILE=/home1/wonhyung64/Github/diagnosis/detection.py
 
 # default prefix of job name
 DEFAULT_NAME=experiment
