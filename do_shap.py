@@ -1,49 +1,45 @@
 #%%
+import re
+import os
 import numpy as np
 import pandas as pd
 import shap
 import sklearn
 import xgboost
+import seaborn as sns
 # %%
-path = "/Users/wonhyung64/data/diagnosis"
-frcnn_df = pd.read_csv(f"{path}/pascal_frcnn.csv")
-retina_df = pd.read_csv(f"{path}/pascal_retina2.csv")
-frcnn_df = frcnn_df.drop(["pos_iou"], 1)
+ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv")]
+filename = ex_files[0]
 
-retina_df = retina_df.drop(["pos_iou"], 1)
-retina_df["pos_iou_mean"] = retina_df["pos_iou"].map(lambda x: np.mean(eval(x)) )
-retina_df["type"].value_counts()
+df = pd.read_csv(f"{filename}")
 
-frcnn_5 = frcnn_df[(frcnn_df["type"] == 5.0) | (frcnn_df["type"] == 0.0)]
-frcnn_5["type"] = frcnn_5["type"].map(lambda x: 1.0 if x > 0. else x)
-frcnn_5["pos_num"] = frcnn_5["pos_num"] / 256
-
-retina_3 = retina_df[(retina_df["type"] == 3.0) | (retina_df["type"] == 0.0)]
-retina_3["type"] = retina_3["type"].map(lambda x: 1.0 if x > 0. else x)
-retina_3["pos_num"] = retina_3["pos_num"] / 40000
-
-model_linear = sklearn.linear_model.LogisticRegression(max_iter=10000)
-model_linear.fit(frcnn_5.loc[:, "label":], frcnn_5["type"])
-
-def model_linear_proba(x):
-    return model_linear.predict_proba(x)[:,1]
-
-def model_linear_log_odds(x):
-    p = model_linear.predict_log_proba(x)
-    return p[:,1] - p[:,0]
-
-sample_ind = 18
-fig, ax = shap.partial_dependence_plot(
-    "ctr_x", model_linear_proba, frcnn_5.loc[:, "label":], model_expected_value=True,
-    feature_expected_value=True, show=False, ice=False
-)
+df_cls = df[(df["type"] == 0) | (df["type"] == 1)]
+X = df_cls.loc[:, "label":]
+y = df_cls.loc[:, "type"]
 
 #%%
-model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(frcnn_5.loc[:, "label":], frcnn_5["type"])
-explainer = shap.Explainer(model, frcnn_5.loc[:, "label":])
-shap_values = explainer(frcnn_5.loc[:, "label":])
+model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+explainer = shap.Explainer(model, X)
+# explainer = shap.explainers.GPUTree(model, df.loc[:, "label":])
+shap_values = explainer(X)
+
 shap.plots.bar(shap_values)
 shap.plots.beeswarm(shap_values)
+shap.plots.scatter(shap_values[:, "fg_bg_ratio"])
+shap.plots.scatter(shap_values[:, "label"])
+shap.plots.scatter(shap_values[:, "iou_mean"])
+shap.plots.scatter(shap_values[:, "iou_std"])
+shap.plots.scatter(shap_values[:, "area"])
+shap.plots.scatter(shap_values[:, "ratio"])
+shap.plots.scatter(shap_values[:, "ctr_x"])
+shap.plots.scatter(shap_values[:, "ctr_y"])
+
+df
+
+
+shap.summary_plot(shap_values)
+shap.plots.waterfall(shap_values[924])
+shap.plots
 
 model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(retina_3.loc[:, "label":], retina_3["type"])
 explainer = shap.Explainer(model, retina_3.loc[:, "label":])
