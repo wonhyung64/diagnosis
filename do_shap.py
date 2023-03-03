@@ -7,34 +7,47 @@ import shap
 import sklearn
 import xgboost
 import seaborn as sns
+from tqdm import tqdm
+import matplotlib.pyplot as plt
 # %%
 ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv")]
-filename = ex_files[0]
+for i in tqdm(range(len(ex_files))):
+    filename = ex_files[i]
+    df = pd.read_csv(f"{filename}")
+    for j in range(1,4):
+        print(j)
+        df_cls = df[(df["type"] == 0) | (df["type"] == j)]
+        X = df_cls.loc[:, "label":]
+        y = df_cls.loc[:, "type"].map(lambda x: 1. if x == j else x)
 
-df = pd.read_csv(f"{filename}")
-
-df_cls = df[(df["type"] == 0) | (df["type"] == 1)]
-X = df_cls.loc[:, "label":]
-y = df_cls.loc[:, "type"]
-
-#%%
-model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
-explainer = shap.Explainer(model, X)
+        model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+        explainer = shap.Explainer(model, X)
 # explainer = shap.explainers.GPUTree(model, df.loc[:, "label":])
-shap_values = explainer(X)
+        shap_values = explainer(X)
 
-shap.plots.bar(shap_values)
-shap.plots.beeswarm(shap_values)
-shap.plots.scatter(shap_values[:, "fg_bg_ratio"])
-shap.plots.scatter(shap_values[:, "label"])
-shap.plots.scatter(shap_values[:, "iou_mean"])
-shap.plots.scatter(shap_values[:, "iou_std"])
-shap.plots.scatter(shap_values[:, "area"])
-shap.plots.scatter(shap_values[:, "ratio"])
-shap.plots.scatter(shap_values[:, "ctr_x"])
-shap.plots.scatter(shap_values[:, "ctr_y"])
+        fig_local, axes = plt.subplots(nrows=4, ncols=2, figsize=(20,10))
+        shap.plots.scatter(shap_values[:, "fg_bg_ratio"], ax=axes[0,0], show=False)
+        shap.plots.scatter(shap_values[:, "label"], ax=axes[0,1], show=False)
+        shap.plots.scatter(shap_values[:, "iou_mean"], ax=axes[1,0], show=False)
+        shap.plots.scatter(shap_values[:, "iou_std"], ax=axes[1,1], show=False)
+        shap.plots.scatter(shap_values[:, "area"], ax=axes[2,0], show=False)
+        shap.plots.scatter(shap_values[:, "ratio"], ax=axes[2,1], show=False)
+        shap.plots.scatter(shap_values[:, "ctr_x"], ax=axes[3,0], show=False)
+        shap.plots.scatter(shap_values[:, "ctr_y"], ax=axes[3,1], show=False)
+        fig_local.suptitle(f"Type {j} Local Shap Values\n({filename.split('.')[0]})", fontsize=15)
+        fig_local.tight_layout()
+        fig_local.savefig(f"{filename.split('.')[0]}_type_{j}_local.png")
 
-df
+        fig_global = plt.figure(figsize=(30,10))
+        plt.subplot(2,1,1)
+        shap.plots.beeswarm(shap_values, show=False)
+        plt.subplot(2,1,2)
+        shap.plots.bar(shap_values, show=False)
+        plt.subplots_adjust(wspace=0.2, hspace=0.3)
+        fig_global.suptitle(f"Type {j} Global Shap Values\n({filename.split('.')[0]})", fontsize=15)
+        fig_global.tight_layout()
+        fig_global.savefig(f"{filename.split('.')[0]}_type_{j}_global.png")
+
 
 
 shap.summary_plot(shap_values)
