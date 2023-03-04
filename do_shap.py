@@ -9,16 +9,17 @@ import xgboost
 import seaborn as sns
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
 # %%
 ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv")]
 for i in tqdm(range(len(ex_files))):
     filename = ex_files[i]
     df = pd.read_csv(f"{filename}")
     for j in range(1,4):
-        print(j)
-        df_cls = df[(df["type"] == 0) | (df["type"] == j)]
-        X = df_cls.loc[:, "label":]
-        y = df_cls.loc[:, "type"].map(lambda x: 1. if x == j else x)
+        df_type = df[(df["type"] == 0) | (df["type"] == j)]
+        X = df_type.loc[:, "fg_bg_ratio":]
+        # X = MinMaxScaler().fit(X).transform(X)
+        y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
 
         model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
         explainer = shap.Explainer(model, X)
@@ -49,7 +50,25 @@ for i in tqdm(range(len(ex_files))):
         fig_global.savefig(f"{filename.split('.')[0]}_type_{j}_global.png")
 
 
+#%%
+shap_values.data.shape
+shap_values.base_values.shape
+X
+y
+df.type.value_counts()
+i=3
+for i in range(8):
+    print(
+        np.mean(shap_values.values[:, i][shap_values.values[:, i] > 0.])
+    )
+    filename
+shap_values.data[:, 0] * \
+shap_values.values[:, 0]
 
+shap_values.data[:, 1] * \
+shap_values.values[:, 1]
+X
+#%%
 shap.summary_plot(shap_values)
 shap.plots.waterfall(shap_values[924])
 shap.plots
