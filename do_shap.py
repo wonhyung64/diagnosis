@@ -7,47 +7,73 @@ import shap
 import sklearn
 import xgboost
 import seaborn as sns
-from tqdm import tqdm
 import matplotlib.pyplot as plt
+
+from tqdm import tqdm
 from sklearn.preprocessing import MinMaxScaler
+
+
+def visualize_shap(shap_values, col_num, filename):
+    nrows = col_num // 2 + col_num % 2
+    axes_idx = [[r,c] for r in range(nrows) for c in range(2)]
+
+    fig_local, axes = plt.subplots(nrows=nrows, ncols=2, figsize=(20,10))
+    for i in range(col_num):
+        r, c = axes_idx[i]
+        shap.plots.scatter(shap_values[:, i], ax=axes[r, c], show=False)
+    fig_local.suptitle(f"Type {j} Local Shap Values\n({filename.split('.')[0]})", fontsize=15)
+    fig_local.tight_layout()
+
+    fig_global = plt.figure(figsize=(30,10))
+    plt.subplot(2,1,1)
+    shap.plots.beeswarm(shap_values, show=False)
+    plt.subplot(2,1,2)
+    shap.plots.bar(shap_values, show=False)
+    plt.subplots_adjust(wspace=0.2, hspace=0.3)
+    fig_global.suptitle(f"Type {j} Global Shap Values\n({filename.split('.')[0]})", fontsize=15)
+    fig_global.tight_layout()
+
+    return fig_local, fig_global
+
+
 # %%
+type_dict = {
+    1: "label",
+    2: "area",
+    3: "fg_bg_ratio"
+}
 ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv")]
 for i in tqdm(range(len(ex_files))):
     filename = ex_files[i]
     df = pd.read_csv(f"{filename}")
-    for j in range(1,4):
-        df_type = df[(df["type"] == 0) | (df["type"] == j)]
-        X = df_type.loc[:, "fg_bg_ratio":]
-        # X = MinMaxScaler().fit(X).transform(X)
-        y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
+    print(f"{filename} type summary")
+    print(df["type"].value_counts())
+    # for j in range(1,4):
+    #     df_type = df[(df["type"] == 0) | (df["type"] == j)]
+    #     X = df_type.loc[:, "label":]
+    #     X = X.drop(columns=type_dict[j])
+    #     y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
 
-        model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
-        explainer = shap.Explainer(model, X)
-# explainer = shap.explainers.GPUTree(model, df.loc[:, "label":])
-        shap_values = explainer(X)
+    #     model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+    #     explainer = shap.Explainer(model, X)
+    #     shap_values = explainer(X)
 
-        fig_local, axes = plt.subplots(nrows=4, ncols=2, figsize=(20,10))
-        shap.plots.scatter(shap_values[:, "fg_bg_ratio"], ax=axes[0,0], show=False)
-        shap.plots.scatter(shap_values[:, "label"], ax=axes[0,1], show=False)
-        shap.plots.scatter(shap_values[:, "iou_mean"], ax=axes[1,0], show=False)
-        shap.plots.scatter(shap_values[:, "iou_std"], ax=axes[1,1], show=False)
-        shap.plots.scatter(shap_values[:, "area"], ax=axes[2,0], show=False)
-        shap.plots.scatter(shap_values[:, "ratio"], ax=axes[2,1], show=False)
-        shap.plots.scatter(shap_values[:, "ctr_x"], ax=axes[3,0], show=False)
-        shap.plots.scatter(shap_values[:, "ctr_y"], ax=axes[3,1], show=False)
-        fig_local.suptitle(f"Type {j} Local Shap Values\n({filename.split('.')[0]})", fontsize=15)
-        fig_local.tight_layout()
-        fig_local.savefig(f"{filename.split('.')[0]}_type_{j}_local.png")
+    #     fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
 
-        fig_global = plt.figure(figsize=(30,10))
-        plt.subplot(2,1,1)
-        shap.plots.beeswarm(shap_values, show=False)
-        plt.subplot(2,1,2)
-        shap.plots.bar(shap_values, show=False)
-        plt.subplots_adjust(wspace=0.2, hspace=0.3)
-        fig_global.suptitle(f"Type {j} Global Shap Values\n({filename.split('.')[0]})", fontsize=15)
-        fig_global.tight_layout()
-        fig_global.savefig(f"{filename.split('.')[0]}_type_{j}_global.png")
+    #     fig_local.savefig(f"./ex3/{filename.split('.')[0]}_type_{j}_local.png")
+    #     fig_global.savefig(f"./ex3/{filename.split('.')[0]}_type_{j}_global.png")
+
+    X = df.loc[:, "label":]
+    y = df.loc[:, "type"].map(lambda x: 1. if x >= 1 else x)
+
+    model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+    explainer = shap.Explainer(model, X)
+    shap_values = explainer(X)
+
+    fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
+
+    fig_local.savefig(f"./ex3/{filename.split('.')[0]}_type_{j}_local.png")
+    fig_global.savefig(f"./ex3/{filename.split('.')[0]}_type_{j}_global.png")
 
 
 #%%
