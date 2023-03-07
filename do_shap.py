@@ -42,40 +42,48 @@ type_dict = {
     2: "area",
     3: "fg_bg_ratio"
 }
-ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv")]
+ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv") and filename.__contains__("test_")]
 for i in tqdm(range(len(ex_files))):
     filename = ex_files[i]
     df = pd.read_csv(f"{filename}")
     print(f"{filename} type summary")
     print(df["type"].value_counts())
-    # for j in range(1,4):
-    #     df_type = df[(df["type"] == 0) | (df["type"] == j)]
-    #     X = df_type.loc[:, "label":]
-    #     X = X.drop(columns=type_dict[j])
-    #     y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
+    for j in range(1,4):
+        df_type = df[(df["type"] == 0) | (df["type"] == j)]
+        X = df_type.loc[:, "label":]
+        X = X.drop(columns=type_dict[j])
+        y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
 
-    #     model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
-    #     explainer = shap.Explainer(model, X)
-    #     shap_values = explainer(X)
+        model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+        explainer = shap.Explainer(model, X)
+        shap_values = explainer(X)
 
-    #     fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
+        fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
 
-    #     fig_local.savefig(f"./ex3/{filename.split('.')[0]}_type_{j}_local.png")
-    #     fig_global.savefig(f"./ex3/{filename.split('.')[0]}_type_{j}_global.png")
+        fig_local.savefig(f"./ex5/{filename.split('.')[0]}_type_{j}_local.png")
+        fig_global.savefig(f"./ex5/{filename.split('.')[0]}_type_{j}_global.png")
 
-    X = df.loc[:, "label":]
-    y = df.loc[:, "type"].map(lambda x: 1. if x >= 1 else x)
+    # X = df.loc[:, "label":]
+    # y = df.loc[:, "type"].map(lambda x: 1. if x >= 1 else x)
 
-    model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
-    explainer = shap.Explainer(model, X)
-    shap_values = explainer(X)
+    # model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+    # explainer = shap.Explainer(model, X)
+    # shap_values = explainer(X)
 
-    fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
+    # fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
 
-    fig_local.savefig(f"./ex3/{filename.split('.')[0]}_type_{j}_local.png")
-    fig_global.savefig(f"./ex3/{filename.split('.')[0]}_type_{j}_global.png")
-
-
+    # fig_local.savefig(f"./ex4/{filename.split('.')[0]}_local.png")
+    # fig_global.savefig(f"./ex4/{filename.split('.')[0]}_global.png")
+df["ctr_x"] = df["ctr_x"]/2
+df["ctr_y"] = df["ctr_y"]/2
+plt.hist(df["ctr_x"])
+plt.hist(df[df["type"] == 0]["ctr_x"])
+fn = df[df["type"] != 0]
+plt.hist(fn[fn["ctr_x"] < 0.3]["area"])
+plt.hist(fn[fn["ctr_x"] > 0.5]["area"])
+plt.hist((df["box_x2"] + df["box_x1"])/2)
+plt.hist((df["box_y2"] + df["box_y1"])/2)
+#TODO ctr_x, ctr_y 다시 만들고 적합
 #%%
 shap_values.data.shape
 shap_values.base_values.shape

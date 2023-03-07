@@ -449,8 +449,8 @@ fn_df = pd.DataFrame(fn_mechanism, columns=[
     ])
 fn_df["area"] = fn_df.apply(lambda x: (x["box_y2"] - x["box_y1"]) * (x["box_x2"] - x["box_x1"]), axis=1)
 fn_df["ratio"] = fn_df.apply(lambda x: (x["box_y2"] - x["box_y1"]) / (x["box_x2"] - x["box_x1"]), axis=1)
-fn_df["ctr_x"] = fn_df["box_y2"] - fn_df["box_y1"]
-fn_df["ctr_y"] = fn_df["box_x2"] - fn_df["box_x1"]
+fn_df["ctr_x"] = (fn_df["box_y2"] - fn_df["box_y1"]) / 2
+fn_df["ctr_y"] = (fn_df["box_x2"] - fn_df["box_x1"]) / 2
 
 file_name = config_file.split("/")[-1].split(".")[0]
 fn_df.to_csv(f"test_{file_name}.csv", index=False)
