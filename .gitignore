@@ -22,3 +22,5 @@ module/mmdetection/
 *.csv
 *.out
 *.err
+*.png
+ex*
