@@ -423,7 +423,7 @@ gt_fns = find_fn(results, dataset, cfg)
 del results
 # %%
 args = build_args(config_file, checkpoint_file)
-model, data_loader, cfg = build_model_datasets(args, "train", path, diagnosis=True)
+model, data_loader, cfg = build_model_datasets(args, "test", path, diagnosis=True)
 results, dataset = predict_dataset(model, data_loader)
 
 #%%
@@ -453,7 +453,7 @@ fn_df["ctr_x"] = fn_df["box_y2"] - fn_df["box_y1"]
 fn_df["ctr_y"] = fn_df["box_x2"] - fn_df["box_x1"]
 
 file_name = config_file.split("/")[-1].split(".")[0]
-fn_df.to_csv(f"{file_name}.csv", index=False)
+fn_df.to_csv(f"test_{file_name}.csv", index=False)
 # pd.read_csv(f"{file_name}.csv")
 # fn_df["type"].value_counts()
 #%%
