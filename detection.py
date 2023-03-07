@@ -414,7 +414,7 @@ checkpoint_file = f"{path}/{args.checkpoint}"
 #     subprocess.check_call([sys.executable, "-m", "mim", "download", "mmdet", "--config" f"{config_file.split('/')[-1].split('.')[0]}", "--dest", "."])
 #%% CONFIG ASSIGN
 args = build_args(config_file, checkpoint_file)
-model, data_loader, cfg = build_model_datasets(args, "train", path)
+model, data_loader, cfg = build_model_datasets(args, "test", path)
 results, dataset = predict_dataset(model, data_loader)
 
 #%%
