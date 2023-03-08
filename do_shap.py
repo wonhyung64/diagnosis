@@ -42,143 +42,130 @@ type_dict = {
     2: "area",
     3: "fg_bg_ratio"
 }
-ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv") and filename.__contains__("test_")]
+# ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv") and filename.__contains__("test_")]
+ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv") and not filename.__contains__("test_")]
 for i in tqdm(range(len(ex_files))):
     filename = ex_files[i]
     df = pd.read_csv(f"{filename}")
-    print(f"{filename} type summary")
-    print(df["type"].value_counts())
-    for j in range(1,4):
-        df_type = df[(df["type"] == 0) | (df["type"] == j)]
-        X = df_type.loc[:, "label":]
-        X = X.drop(columns=type_dict[j])
-        y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
+    df["ctr_x"] = (df["box_x1"] + df["box_x2"]) / 2
+    df["ctr_y"] = (df["box_y1"] + df["box_y2"]) / 2
+    # df.to_csv(f"{filename}", index=False)
 
-        model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
-        explainer = shap.Explainer(model, X)
-        shap_values = explainer(X)
+    # for j in range(1,4):
+    #     df_type = df[(df["type"] == 0) | (df["type"] == j)]
+    #     X = df_type.loc[:, "label":]
+    #     X = X.drop(columns=type_dict[j])
+    #     y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
 
-        fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
+    #     model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+    #     explainer = shap.Explainer(model, X)
+    #     shap_values = explainer(X)
 
-        fig_local.savefig(f"./ex5/{filename.split('.')[0]}_type_{j}_local.png")
-        fig_global.savefig(f"./ex5/{filename.split('.')[0]}_type_{j}_global.png")
+    #     fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
 
-    # X = df.loc[:, "label":]
-    # y = df.loc[:, "type"].map(lambda x: 1. if x >= 1 else x)
+    #     fig_local.savefig(f"./ex2/{filename.split('.')[0]}_type_{j}_local.png")
+    #     fig_global.savefig(f"./ex2/{filename.split('.')[0]}_type_{j}_global.png")
 
-    # model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
-    # explainer = shap.Explainer(model, X)
-    # shap_values = explainer(X)
+    X = df.loc[:, "label":]
+    y = df.loc[:, "type"].map(lambda x: 1. if x >= 1 else x)
 
-    # fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
+    model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+    explainer = shap.TreeExplainer(model)
+    shap_interaction = explainer.shap_interaction_values(X)
+    shap_values = explainer(X)
 
-    # fig_local.savefig(f"./ex4/{filename.split('.')[0]}_local.png")
-    # fig_global.savefig(f"./ex4/{filename.split('.')[0]}_global.png")
-df["ctr_x"] = df["ctr_x"]/2
-df["ctr_y"] = df["ctr_y"]/2
-plt.hist(df["ctr_x"])
-plt.hist(df[df["type"] == 0]["ctr_x"])
-fn = df[df["type"] != 0]
-plt.hist(fn[fn["ctr_x"] < 0.3]["area"])
-plt.hist(fn[fn["ctr_x"] > 0.5]["area"])
-plt.hist((df["box_x2"] + df["box_x1"])/2)
-plt.hist((df["box_y2"] + df["box_y1"])/2)
-#TODO ctr_x, ctr_y 다시 만들고 적합
+    fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
+
+    shap.dependence_plot(("area", "label"), shap_interaction, X, display_features=X)
+    shap.dependence_plot(("label", "area"), shap_interaction, X, display_features=X)
+    shap.summary_plot(shap_interaction, X)
+
+    fig_local.savefig(f"./ex3/{filename.split('.')[0]}_local.png")
+    fig_global.savefig(f"./ex3/{filename.split('.')[0]}_global.png")
+
+
 #%%
-shap_values.data.shape
-shap_values.base_values.shape
-X
-y
-df.type.value_counts()
-i=3
-for i in range(8):
-    print(
-        np.mean(shap_values.values[:, i][shap_values.values[:, i] > 0.])
-    )
-    filename
-shap_values.data[:, 0] * \
-shap_values.values[:, 0]
+ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv") and not filename.__contains__("test_")]
+for i in tqdm(range(len(ex_files))):
+    filename = ex_files[i]
+    df_raw = pd.read_csv(f"{filename}")
+    df_raw["type"] = df_raw.loc[:, "type"].map(lambda x: 1. if x >= 1 else x)
+    df = df_raw.copy()
+    X = df.loc[:, "label":]
+    y = df.loc[:, "type"].map(lambda x: 1. if x >= 1 else x)
 
-shap_values.data[:, 1] * \
-shap_values.values[:, 1]
-X
-#%%
-shap.summary_plot(shap_values)
-shap.plots.waterfall(shap_values[924])
-shap.plots
+    model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+    explainer = shap.TreeExplainer(model)
+    shap_values = explainer.shap_values(X)
+    shap_interaction = explainer.shap_interaction_values(X)
 
-model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(retina_3.loc[:, "label":], retina_3["type"])
-explainer = shap.Explainer(model, retina_3.loc[:, "label":])
-shap_values = explainer(retina_3.loc[:, "label":], check_additivity=False)
+    '''absolute mean plot'''
+    mean_shap = np.abs(shap_interaction).mean(0)
+    df = pd.DataFrame(mean_shap, index=X.columns, columns = X.columns)
 
-import matplotlib.pyplot as plt
-fig, axes = plt.subplots(ncols=2, nrows=1, figsize=(20, 10))
-shap.plots.bar(shap_values.mean(0), ax=axes[0])
+    df = df.where(df.values == np.diagonal(df), df.values*2)
 
-shap.plots.bar(shap_values.max(0))
-shap.plots.beeswarm(shap_values)
-shap.plots.bar(shap_values.max(0))
-shap.plots.scatter(shap_values[:, "label"], color=shap_values)
-shap.plots.waterfall(shap_values[0])
+    fig = plt.figure(figsize=(35, 20), facecolor="#002637", edgecolor="r")
+    ax = fig.add_subplot()
+    sns.heatmap(df.round(decimals=3), cmap="coolwarm", annot=True, fmt=".6g", cbar=False, ax=ax, annot_kws={"size": 30})
+    ax.tick_params(axis='x', colors='w', labelsize=30)
+    ax.tick_params(axis='y', colors='w', labelsize=30)
+
+    plt.suptitle("SHAP interaction values", color="white", fontsize=60, y=0.97)
+    plt.yticks(rotation=0) 
+    plt.show()
+    fig.savefig(f"./ex3/{filename.split('.')[0]}_inter.png")
+fig
+    '''Feature interaction analysis'''
+#plot feature interaction
+from matplotlib import gridspec
+f1="area"
+f2="label"
+#plot function
+plt.style.use("cyberpunk")
+
+def plot_feature_interaction(f1, f2):
+    # dependence plot
+    fig = plt.figure(tight_layout=True, figsize=(20,10))
+    spec = gridspec.GridSpec(ncols=2, nrows=2, figure=fig)
 
 
-import tensorflow as tf
-from tqdm import tqdm
-anchor_boxes = AnchorBox().get_anchors(512, 512)
-anchor_boxes = tf.cast(anchor_boxes, dtype=tf.float64)
-iou_pos_list = []
-num_pos_list = []
-num_neg_list = []
+    ax0 = fig.add_subplot(spec[0, 0])
+    shap.dependence_plot(f1, shap_values, X, display_features=X, interaction_index=None, ax=ax0, show=False)
+    ax0.yaxis.label.set_color('white')          #setting up Y-axis label color to blue
+    ax0.xaxis.label.set_color('white')          #setting up Y-axis label color to blue
+    ax0.tick_params(axis='x', colors='white')    #setting up X-axis tick color to red
+    ax0.tick_params(axis='y', colors='white')    #setting up X-axis tick color to red
+    ax0.set_title(f'SHAP main effect', fontsize=10)
 
-for i in tqdm(range(len(retina_df))):
+    ax1 = fig.add_subplot(spec[0, 1])
+    shap.dependence_plot((f1, f2), shap_interaction, X, display_features=X, ax=ax1, axis_color='w', show=False)
+    ax1.yaxis.label.set_color('white')          #setting up Y-axis label color to blue
+    ax1.xaxis.label.set_color('white')          #setting up Y-axis label color to blue
+    ax1.tick_params(axis='x', colors='white')    #setting up X-axis tick color to red
+    ax1.tick_params(axis='y', colors='white')    #setting up X-axis tick color to red
+    ax1.set_title(f'SHAP interaction effect', fontsize=10)
 
-    y1, x1, y2, x2, label = retina_df.loc[i, "box_y1": "label"]
-    gt_box = tf.constant([[y1, x1, y2, x2]], dtype=tf.float64)
-    iou_matrix = compute_iou(anchor_boxes, gt_box * 512)
-    max_iou = tf.reduce_max(iou_matrix, axis=1)
-    matched_gt_idx = tf.argmax(iou_matrix, axis=1)
-    positive_mask = tf.greater_equal(max_iou, 0.5)
-    pos_iou = max_iou[positive_mask]
-    pos_num = tf.reduce_sum(tf.cast(positive_mask, dtype=tf.int32))
-    negative_mask = tf.less(max_iou, 0.4)
-    neg_num = tf.reduce_sum(tf.cast(negative_mask, dtype=tf.int32))
+    ax2 = fig.add_subplot(spec[1, 0])
+    sns.scatterplot(x=f1, y=f2, data=df_raw, hue="type", ax=ax2, s=2)
+    ax2.text(-1.5, -5, "1", fontsize=18, verticalalignment='top', rotation="horizontal", color="k", fontproperties="smallcaps")
+    ax2.text(0, 1, "2", fontsize=18, verticalalignment='top', rotation="horizontal", color="k", fontproperties="smallcaps")
+    ax2.text(1, 7, "3", fontsize=18, verticalalignment='top', rotation="horizontal", color="k", fontproperties="smallcaps")
 
-    iou_pos_list.append(pos_iou.numpy().tolist())
-    num_pos_list.append(pos_num.numpy())
-    num_neg_list.append(neg_num.numpy())
+    ax2.set_title(f'scatter plot', fontsize=10)
+
+    temp = pd.DataFrame({f1: df_raw[f1].values,'target': df_raw.type.values})
+    temp = temp.sort_values(f1)
+    temp.reset_index(inplace=True)
     
-retina_df["pos_num2"] = num_pos_list
-
-import matplotlib.pyplot as plt
-plt.hist(retina_df["pos_num2"])
-plt.hist(retina_df["pos_num"])
-
-
-
-#%%
-frcnn_5
-
-from sklearn.preprocessing import OneHotEncoder, MinMaxScaler
+    ax3 = fig.add_subplot(spec[1, 1])
+    sns.scatterplot(x=temp[f1], y=temp.target.rolling(15000, center=True).mean(), data=temp, ax=ax3, s=2)
+    ax3.set_title('How the target probability depends on f_02', fontsize=10)
+    
+    plt.suptitle("Feature Interaction Analysis\n f_02 and f_21", fontsize=30, y=1.15)
+    plt.show()
 
 
-retina_3
-X = retina_3.loc[:, "label":]
-y = retina_3.loc[:, "type"]
-retina_3
-X = frcnn_5.loc[:, "label":]
-y = frcnn_5.loc[:, "type"]
-
-onehot_encoder = OneHotEncoder()
-label_onehot = onehot_encoder.fit_transform(np.expand_dims(X["label"].to_numpy(), -1)).toarray()
-X = X.drop("label", axis=1)
-
-scaler = MinMaxScaler()
-scaler.fit(X)
-X = scaler.transform(X)
-X = np.concatenate([label_onehot, X], 1)
-
-model = xgboost.XGBClassifier(n_estimators=100, max_depth=2)
-model.fit(X, y)
-model.feature_importances_
-frcnn_df["type"].value_counts()
-retina_df["type"].value_counts()
+f1='f_24'
+f2='f_30'
+plot_feature_interaction(f1, f2)
