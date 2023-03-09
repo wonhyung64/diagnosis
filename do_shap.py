@@ -47,24 +47,20 @@ ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv
 for i in tqdm(range(len(ex_files))):
     filename = ex_files[i]
     df = pd.read_csv(f"{filename}")
-    df["ctr_x"] = (df["box_x1"] + df["box_x2"]) / 2
-    df["ctr_y"] = (df["box_y1"] + df["box_y2"]) / 2
-    # df.to_csv(f"{filename}", index=False)
+    for j in range(1,4):
+        df_type = df[(df["type"] == 0) | (df["type"] == j)]
+        X = df_type.loc[:, "label":]
+        # X = X.drop(columns=type_dict[j])
+        y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
 
-    # for j in range(1,4):
-    #     df_type = df[(df["type"] == 0) | (df["type"] == j)]
-    #     X = df_type.loc[:, "label":]
-    #     X = X.drop(columns=type_dict[j])
-    #     y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
+        model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
+        explainer = shap.Explainer(model, X)
+        shap_values = explainer(X)
 
-    #     model = xgboost.XGBClassifier(n_estimators=100, max_depth=2).fit(X, y)
-    #     explainer = shap.Explainer(model, X)
-    #     shap_values = explainer(X)
+        fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
 
-    #     fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
-
-    #     fig_local.savefig(f"./ex2/{filename.split('.')[0]}_type_{j}_local.png")
-    #     fig_global.savefig(f"./ex2/{filename.split('.')[0]}_type_{j}_global.png")
+        fig_local.savefig(f"./ex1/{filename.split('.')[0]}_type_{j}_local.png")
+        fig_global.savefig(f"./ex1/{filename.split('.')[0]}_type_{j}_global.png")
 
     X = df.loc[:, "label":]
     y = df.loc[:, "type"].map(lambda x: 1. if x >= 1 else x)
