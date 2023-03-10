@@ -4,19 +4,36 @@
 ENV=/home1/wonhyung64/anaconda3/envs/openmmlab/bin/python
 
 # file directory of multiple execution source ".sh"
-RUN_SRC=./run_src.sh
+RUN_SRC=./run_gpu1_src.sh
+# RUN_SRC=./run_gpu2_src.sh
+# RUN_SRC=./run_hgx_src.sh
+# RUN_SRC=./run_cpu_src.sh
 
 # file directory of experiment ".py"
-EXECUTION_FILE=/home1/wonhyung64/Github/diagnosis/detection.py
+EXECUTION_FILE=/home1/wonhyung64/Github/diagnosis/module/mmdetection/tools/train.py
 
 # default prefix of job name
 DEFAULT_NAME=experiment
 
 # python argparse source for experiments
 experiments=(
-"--config=retinanet_r18_fpn_1x_coco.py --checkpoint=retinanet_r18_fpn_1x_coco_20220407_171055-614fd399.pth"
-"--config=retinanet_r50_fpn_1x_coco.py --checkpoint=retinanet_r50_fpn_1x_coco_20200130-c2398f9e.pth"
-"--config=retinanet_x101_64x4d_fpn_1x_coco.py --checkpoint=retinanet_x101_64x4d_fpn_1x_coco_20200130-366f5af1.pth"
+# "./module/mmdetection/r18_flip.py"
+# "./module/mmdetection/r18_flip.py"
+# "./module/mmdetection/r18_flip.py"
+# "./module/mmdetection/r18_flip.py"
+# "./module/mmdetection/r18_flip.py"
+# "./module/mmdetection/r50_flip.py"
+# "./module/mmdetection/r50_flip.py"
+# "./module/mmdetection/r50_flip.py"
+# "./module/mmdetection/r50_flip.py"
+# "./module/mmdetection/r50_flip.py"
+"./module/mmdetection/x101_flip.py --seed 0"
+"./module/mmdetection/x101_flip.py --seed 0"
+"./module/mmdetection/x101_flip.py --seed 0"
+"./module/mmdetection/x101_flip.py --seed 0"
+"./module/mmdetection/x101_flip.py --seed 0"
+
+
 )
 
 for index in ${!experiments[*]}; do

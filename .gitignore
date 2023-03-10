@@ -24,3 +24,7 @@ module/mmdetection/
 *.err
 *.png
 ex*
+*.sh
+work_dirs
+multi_*
+run_*
