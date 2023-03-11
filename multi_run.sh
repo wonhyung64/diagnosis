@@ -17,23 +17,18 @@ DEFAULT_NAME=experiment
 
 # python argparse source for experiments
 experiments=(
-# "./module/mmdetection/r18_flip.py"
-# "./module/mmdetection/r18_flip.py"
-# "./module/mmdetection/r18_flip.py"
-# "./module/mmdetection/r18_flip.py"
-# "./module/mmdetection/r18_flip.py"
-# "./module/mmdetection/r50_flip.py"
-# "./module/mmdetection/r50_flip.py"
-# "./module/mmdetection/r50_flip.py"
-# "./module/mmdetection/r50_flip.py"
-# "./module/mmdetection/r50_flip.py"
-"./module/mmdetection/x101_flip.py --seed 0"
-"./module/mmdetection/x101_flip.py --seed 0"
-"./module/mmdetection/x101_flip.py --seed 0"
-"./module/mmdetection/x101_flip.py --seed 0"
-"./module/mmdetection/x101_flip.py --seed 0"
-
-
+# "./module/mmdetection/config_files/retinanet_swin-t-p4-w7_fpn_1x_coco.py --seed 0" nan
+# "./module/mmdetection/config_files/no_flip_retinanet_swin-t-p4-w7_fpn_1x_coco.py --seed 0" nan
+# "./module/mmdetection/config_files/retinanet_r50_fpn_rsb-pretrain_1x_coco.py --seed 0"
+# "./module/mmdetection/config_files/no_flip_retinanet_r50_fpn_rsb-pretrain_1x_coco.py --seed 0"
+# "./module/mmdetection/config_files/fcos_r50_fpn_rsb_gn-head_1x_coco.py --seed 0"
+# "./module/mmdetection/config_files/no_flip_fcos_r50_fpn_rsb_gn-head_1x_coco.py --seed 0"
+# "./module/mmdetection/config_files/fcos_swin-t-p4-w7_fpn_gn-head_1x_coco.py --seed 0"
+# "./module/mmdetection/config_files/no_flip_fcos_swin-t-p4-w7_fpn_gn-head_1x_coco.py --seed 0"
+# "./module/mmdetection/config_files/retinanet_swin-t-p4-w7_fpn_1x_coco.py --seed 2" nan
+# "./module/mmdetection/config_files/no_flip_retinanet_swin-t-p4-w7_fpn_1x_coco.py --seed 2" nan
+# "./module/mmdetection/config_files/retinanet_swin-t-p4-w7_fpn_1x_coco.py --seed 3"
+"./module/mmdetection/config_files/no_flip_retinanet_swin-t-p4-w7_fpn_1x_coco.py --seed 3"
 )
 
 for index in ${!experiments[*]}; do
