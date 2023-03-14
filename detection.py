@@ -390,7 +390,7 @@ def false_neg_mechanism(results, dataset, gt_fns, anchor_generator, cfg, iou_thr
         
 
 # %% ARGS
-path = "./module/mmdetection"
+path = "/home1/wonhyung64/Github/diagnosis/module/mmdetection"
 
 parser = argparse.ArgumentParser()
 
@@ -398,8 +398,8 @@ parser.add_argument('--config', type=str)
 parser.add_argument('--checkpoint', type=str)
 args = parser.parse_args()
 
-config_file = f"{path}/{args.config}"
-checkpoint_file = f"{path}/{args.checkpoint}"
+config_file = f"{args.config}"
+checkpoint_file = f"{args.checkpoint}"
 # config_file = f"{path}/retinanet_r101_fpn_1x_coco.py"
 # checkpoint_file = f"{path}/retinanet_r101_fpn_1x_coco_20200130-7a93545f.pth"
 # config_file = f"{path}/configs/resnet_strikes_back/retinanet_r50_fpn_rsb-pretrain_1x_coco.py"
@@ -414,7 +414,7 @@ checkpoint_file = f"{path}/{args.checkpoint}"
 #     subprocess.check_call([sys.executable, "-m", "mim", "download", "mmdet", "--config" f"{config_file.split('/')[-1].split('.')[0]}", "--dest", "."])
 #%% CONFIG ASSIGN
 args = build_args(config_file, checkpoint_file)
-model, data_loader, cfg = build_model_datasets(args, "test", path)
+model, data_loader, cfg = build_model_datasets(args, "val", path)
 results, dataset = predict_dataset(model, data_loader)
 
 #%%
