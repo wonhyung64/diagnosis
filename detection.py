@@ -423,7 +423,7 @@ gt_fns = find_fn(results, dataset, cfg)
 del results
 # %%
 args = build_args(config_file, checkpoint_file)
-model, data_loader, cfg = build_model_datasets(args, "test", path, diagnosis=True)
+model, data_loader, cfg = build_model_datasets(args, "val", path, diagnosis=True)
 results, dataset = predict_dataset(model, data_loader)
 
 #%%
