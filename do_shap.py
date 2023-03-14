@@ -42,8 +42,8 @@ type_dict = {
     2: "area",
     3: "fg_bg_ratio"
 }
-# ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv") and filename.__contains__("test_")]
-ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv") and not filename.__contains__("test_")]
+ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv") and filename.__contains__("rsb") and filename.__contains__("test")]
+# ex_files = [filename for filename in os.listdir() if filename.__contains__(".csv") and not filename.__contains__("test_")]
 for i in tqdm(range(len(ex_files))):
     filename = ex_files[i]
     df = pd.read_csv(f"{filename}")
@@ -76,8 +76,10 @@ for i in tqdm(range(len(ex_files))):
     shap.dependence_plot(("label", "area"), shap_interaction, X, display_features=X)
     shap.summary_plot(shap_interaction, X)
 
-    fig_local.savefig(f"./ex3/{filename.split('.')[0]}_local.png")
-    fig_global.savefig(f"./ex3/{filename.split('.')[0]}_global.png")
+    fig_local.savefig(f"./ex6/{filename.split('.')[0]}_local.png")
+    fig_global.savefig(f"./ex6/{filename.split('.')[0]}_global.png")
+
+os.makedirs("ex6")
 
 
 #%%
@@ -165,3 +167,9 @@ def plot_feature_interaction(f1, f2):
 f1='f_24'
 f2='f_30'
 plot_feature_interaction(f1, f2)
+#%%
+for i in tqdm(range(len(ex_files))):
+    filename = ex_files[i]
+    df_raw = pd.read_csv(f"{filename}")
+    print(ex_files[i])
+    print(df_raw["type"].value_counts())
