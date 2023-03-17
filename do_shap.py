@@ -59,8 +59,9 @@ for i in tqdm(range(len(ex_files))):
 
         fig_local, fig_global = visualize_shap(shap_values, col_num=len(X.columns), filename=filename)
 
-        fig_local.savefig(f"./ex1/{filename.split('.')[0]}_type_{j}_local.png")
-        fig_global.savefig(f"./ex1/{filename.split('.')[0]}_type_{j}_global.png")
+        fig_local.savefig(f"./ex7/{filename.split('.')[0]}_type_{j}_local.png")
+        fig_global.savefig(f"./ex7/{filename.split('.')[0]}_type_{j}_global.png")
+
 
     X = df.loc[:, "label":]
     y = df.loc[:, "type"].map(lambda x: 1. if x >= 1 else x)
@@ -173,3 +174,57 @@ for i in tqdm(range(len(ex_files))):
     df_raw = pd.read_csv(f"{filename}")
     print(ex_files[i])
     print(df_raw["type"].value_counts())
+
+#%%
+import torch
+import seaborn as sns
+
+file = "retinanet_r18_fpn_1x_coco.csv"
+df = pd.read_csv(f"{file}")
+
+fig, axes = plt.subplots(ncols=2, nrows=8, figsize=(10, 40))
+df["type"] = df["type"].map(lambda x: 1. if x >= 1 else 0.)
+i = 0
+sns.histplot(data=df, x="label", bins=80, hue="type", multiple="stack", ax=axes[i][0])
+i += 1
+sns.histplot(data=df, x="fg_bg_ratio", bins=30, hue="type", multiple="stack", ax=axes[i][0])
+i += 1
+sns.histplot(data=df, x="iou_mean", bins=30, hue="type", multiple="stack", ax=axes[i][0])
+i += 1
+sns.histplot(data=df, x="iou_std", bins=30, hue="type", multiple="stack", ax=axes[i][0])
+i += 1
+sns.histplot(data=df, x="area", bins=40, hue="type", multiple="stack", ax=axes[i][0])
+i += 1
+sns.histplot(data=df, x="ratio", bins=40, hue="type", multiple="stack", ax=axes[i][0])
+i += 1
+sns.histplot(data=df, x="ctr_x", bins=40, hue="type", multiple="stack", ax=axes[i][0])
+i += 1
+sns.histplot(data=df, x="ctr_y", bins=40, hue="type", multiple="stack", ax=axes[i][0])
+
+test_df = pd.read_csv(f"test_{file}")
+test_df["ctr_x"] = (test_df["box_x1"] + test_df["box_x2"]) / 2
+test_df["ctr_y"] = (test_df["box_y1"] + test_df["box_y2"]) / 2
+
+test_df["type"] = test_df["type"].map(lambda x: 1. if x >= 1 else 0.)
+i = 0
+sns.histplot(data=test_df, x="label", bins=80, hue="type", multiple="stack", ax=axes[i][1])
+i += 1
+sns.histplot(data=test_df, x="fg_bg_ratio", bins=30, hue="type", multiple="stack", ax=axes[i][1])
+i += 1
+sns.histplot(data=test_df, x="iou_mean", bins=30, hue="type", multiple="stack", ax=axes[i][1])
+i += 1
+sns.histplot(data=test_df, x="iou_std", bins=30, hue="type", multiple="stack", ax=axes[i][1])
+i += 1
+sns.histplot(data=test_df, x="area", bins=40, hue="type", multiple="stack", ax=axes[i][1])
+i += 1
+sns.histplot(data=test_df, x="ratio", bins=40, hue="type", multiple="stack", ax=axes[i][1])
+i += 1
+sns.histplot(data=test_df, x="ctr_x", bins=40, hue="type", multiple="stack", ax=axes[i][1])
+i += 1
+sns.histplot(data=test_df, x="ctr_y", bins=40, hue="type", multiple="stack", ax=axes[i][1])
+fig
+
+sns.boxplot(data=df, x="label")
+
+
+
