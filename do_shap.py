@@ -226,5 +226,188 @@ fig
 
 sns.boxplot(data=df, x="label")
 
+small_df = df[df["area"] <= 0.1].reset_index(drop=True)
+sns.histplot(data=small_df, x="area", bins=80, hue="type", multiple="stack")
+sns.histplot(data=small_df, x="fg_bg_ratio", bins=80, hue="type", multiple="stack")
+df
+
+test_df = pd.read_csv(f"test_{file}")
+test_df["type"] = test_df["type"].map(lambda x: 1. if x >= 1 else x)
+small_test_df = test_df[test_df["area"] <= 0.1].reset_index(drop=True)
+sns.histplot(data=small_test_df, x="area", bins=80, hue="type", multiple="stack")
+sns.histplot(data=small_df, x="fg_bg_ratio", bins=80, hue="type", multiple="stack")
+sns.histplot(data=small_df, x="fg_bg_ratio", bins=80, hue="type", multiple="stack")
 
 
+#%%
+flip_df = pd.read_csv("e6_test_retinanet_r50_fpn_rsb-pretrain_1x_coco.csv")
+no_flip_df = pd.read_csv("e12_test_no_flip_retinanet_r50_fpn_rsb-pretrain_1x_coco.csv")
+no_flip_df["label"].value_counts()
+cls_df = no_flip_df[no_flip_df["type"] < 2.]
+
+sns.histplot(data=cls_df, x="fg_bg_ratio", hue="type", multiple="fill")
+sns.histplot(data=cls_df, x="label", hue="type", multiple="fill")
+sns.histplot(data=cls_df, x="iou_mean", hue="type", multiple="fill")
+sns.histplot(data=cls_df, x="iou_std", hue="type", multiple="fill")
+sns.histplot(data=cls_df, x="area", hue="type", bins=100, multiple="fill")
+sns.histplot(data=cls_df, x="ratio", hue="type", bins=50, multiple="fill")
+sns.histplot(data=cls_df, x="ctr_x", hue="type", bins=50, multiple="fill")
+sns.histplot(data=cls_df, x="ctr_y", hue="type", bins=50, multiple="fill")
+cls_df["fg_bg_ratio"].value_counts()
+
+#%%
+from causallearn.search.ConstraintBased.PC import pc
+from causallearn.utils.PCUtils.BackgroundKnowledge import BackgroundKnowledge
+
+test_df["ctr_x"] = (test_df["box_x2"] + test_df["box_x1"]) / 2
+test_df["ctr_y"] = (test_df["box_y2"] + test_df["box_y1"]) / 2
+
+#%% two-layers
+node_names = ["type", "fg_bg_ratio", "iou_mean", "iou_std", "label", "area", "ratio", "ctr_x", "ctr_y"]
+data = test_df[node_names].to_numpy()
+cg = pc(data, node_names=node_names)
+
+nodes = cg.G.get_nodes()
+bk = BackgroundKnowledge()
+
+'''default settings~'''
+# forbid type -> node edges
+for i in range(1, len(nodes)):
+    bk.add_forbidden_by_node(nodes[0], nodes[i])
+    
+# forbid model_node -> property_node edges
+for i in range(1, 4):
+    for j in range(4, len(nodes)): 
+        bk.add_forbidden_by_node(nodes[i], nodes[j])
+'''~default settings'''
+
+cg2 = pc(data, background_knowledge=bk, node_names=node_names)
+cg2.draw_pydot_graph()
+
+
+
+#%% only-property
+node_names = ["type", "label", "area", "ratio", "ctr_x", "ctr_y"]
+data = test_df[node_names].to_numpy()
+cg = pc(data, node_names=node_names)
+
+nodes = cg.G.get_nodes()
+bk = BackgroundKnowledge()
+'''default settings~'''
+# forbid type -> node edges
+for i in range(1, len(nodes)):
+    bk.add_forbidden_by_node(nodes[0], nodes[i])
+'''~default settings'''
+
+cg2 = pc(data, background_knowledge=bk, node_names=node_names)
+cg2.draw_pydot_graph()
+
+#%% two-layers without inter
+node_names = ["type", "fg_bg_ratio", "iou_mean", "iou_std", "label", "area", "ratio", "ctr_x", "ctr_y"]
+data = test_df[node_names].to_numpy()
+cg = pc(data, node_names=node_names)
+
+nodes = cg.G.get_nodes()
+bk = BackgroundKnowledge()
+'''default settings~'''
+# forbid type -> node edges
+for i in range(1, len(nodes)):
+    bk.add_forbidden_by_node(nodes[0], nodes[i])
+    
+# forbid model_node -> property_node edges
+for i in range(1, 4):
+    for j in range(4, len(nodes)): 
+        bk.add_forbidden_by_node(nodes[i], nodes[j])
+'''~default settings'''
+
+# forbid edges between model_nodes
+for i in range(1, 4):
+    for j in range(1, 4):
+        if i == j: continue
+        bk.add_forbidden_by_node(nodes[i], nodes[j])
+
+#forbid edges between property_nodes
+# for i in range(4, 9):
+#     for j in range(4, 9):
+#         if i == j: continue
+#         bk.add_forbidden_by_node(nodes[i], nodes[j])
+
+cg2 = pc(data, background_knowledge=bk, node_names=node_names)
+cg2.draw_pydot_graph()
+
+#%% two-layers without jump
+node_names = ["type", "fg_bg_ratio", "iou_mean", "iou_std", "label", "area", "ratio", "ctr_x", "ctr_y"]
+data = test_df[node_names].to_numpy()
+cg = pc(data, node_names=node_names)
+
+nodes = cg.G.get_nodes()
+'''default settings~'''
+# forbid type -> node edges
+for i in range(1, len(nodes)):
+    bk.add_forbidden_by_node(nodes[0], nodes[i])
+    
+# forbid model_node -> property_node edges
+for i in range(1, 4):
+    for j in range(4, len(nodes)): 
+        bk.add_forbidden_by_node(nodes[i], nodes[j])
+'''~default settings'''
+
+# forbid property_node -> type edges
+for i in range(4, 9):
+    bk.add_forbidden_by_node(nodes[i], nodes[0])
+
+cg2 = pc(data, background_knowledge=bk, node_names=node_names)
+cg2.draw_pydot_graph()
+
+
+#%% two-layers without inter and jump
+node_names = ["type", "fg_bg_ratio", "iou_mean", "iou_std", "label", "area", "ratio", "ctr_x", "ctr_y"]
+data = test_df[node_names].to_numpy()
+cg = pc(data, node_names=node_names)
+
+nodes = cg.G.get_nodes()
+bk = BackgroundKnowledge()
+'''default settings~'''
+# forbid type -> node edges
+for i in range(1, len(nodes)):
+    bk.add_forbidden_by_node(nodes[0], nodes[i])
+    
+# forbid model_node -> property_node edges
+for i in range(1, 4):
+    for j in range(4, len(nodes)): 
+        bk.add_forbidden_by_node(nodes[i], nodes[j])
+'''~default settings'''
+
+# forbid edges between model_nodes
+for i in range(1, 4):
+    for j in range(1, 4):
+        if i == j: continue
+        bk.add_forbidden_by_node(nodes[i], nodes[j])
+
+#forbid edges between property_nodes
+for i in range(4, 9):
+    for j in range(4, 9):
+        if i == j: continue
+        bk.add_forbidden_by_node(nodes[i], nodes[j])
+
+# forbid property_node -> type edges
+for i in range(4, 9):
+    bk.add_forbidden_by_node(nodes[i], nodes[0])
+
+cg2 = pc(data, background_knowledge=bk, node_names=node_names)
+cg2.draw_pydot_graph()
+
+# %%
+node_names = ["label", "area", "ratio", "ctr_x", "ctr_y"]
+data = test_df[node_names].to_numpy()
+cg = pc(data, node_names=node_names)
+cg.draw_pydot_graph()
+
+#%%
+tmp = test_df.groupby("label").mean()["ctr_y"].reset_index()
+sns.barplot(tmp, y="ctr_y", x="label")
+tmp.sort_values("ctr_y", ascending=False).head(10)
+tmp.sort_values()
+
+CLASSES
+tmp["label"] = tmp["label"].map(lambda x: CLASSES[int(x)])
