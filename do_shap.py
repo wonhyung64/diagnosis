@@ -281,7 +281,7 @@ for i in range(1, 4):
         bk.add_forbidden_by_node(nodes[i], nodes[j])
 '''~default settings'''
 
-cg2 = pc(data, background_knowledge=bk, node_names=node_names)
+cg2 = pc(data, 0.0001, background_knowledge=bk, node_names=node_names)
 cg2.draw_pydot_graph()
 
 
@@ -332,7 +332,7 @@ for i in range(1, 4):
 #         if i == j: continue
 #         bk.add_forbidden_by_node(nodes[i], nodes[j])
 
-cg2 = pc(data, background_knowledge=bk, node_names=node_names)
+cg2 = pc(data, 0.0001, background_knowledge=bk, node_names=node_names)
 cg2.draw_pydot_graph()
 
 #%% two-layers without jump
@@ -394,7 +394,7 @@ for i in range(4, 9):
 for i in range(4, 9):
     bk.add_forbidden_by_node(nodes[i], nodes[0])
 
-cg2 = pc(data, background_knowledge=bk, node_names=node_names)
+cg2 = pc(data, 0.0000001, background_knowledge=bk, node_names=node_names)
 cg2.draw_pydot_graph()
 
 # %%
