@@ -48,7 +48,9 @@ for i in tqdm(range(len(ex_files))):
     filename = ex_files[i]
     df = pd.read_csv(f"{filename}")
     for j in range(1,4):
+        
         df_type = df[(df["type"] == 0) | (df["type"] == j)]
+        df_type = df_type[df_type["area"] > 0.1]
         X = df_type.loc[:, "label":]
         # X = X.drop(columns=type_dict[j])
         y = df_type.loc[:, "type"].map(lambda x: 1. if x == j else x)
